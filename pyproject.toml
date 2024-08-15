@@ -7,8 +7,18 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
+google-auth = "^2.33.0"
+google-auth-oauthlib = "^1.2.1"
+google-api-python-client = "^2.140.0"
+google-api-python-client-stubs = "^1.26.0"
+pydantic = "^2.8.2"
+pymongo = "^4.8.0"
 
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.basedpyright]
+reportMissingTypeStubs = false
+reportUnknownMemberType = false

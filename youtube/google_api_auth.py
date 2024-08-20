@@ -92,6 +92,22 @@ class FileCredentialsStorage:
         return f"FileCredentialsStorage(storage_file={self.storage_file})"
 
 
+class DBCredentialsStorage:
+    """Class to save and load credentials from database"""
+
+    def __init__(self, credentials: Credentials | Credentials2) -> None:
+        self.credentials = credentials
+
+    def save(self, credentials: Credentials | Credentials2) -> None:
+        raise NotImplementedError
+
+    def load(self) -> Credentials | None:
+        raise NotImplementedError
+
+    @override
+    def __repr__(self) -> str:
+        return f"DBCredentialsStorage(credentials={self.credentials})"
+
 AccessScopes = Iterable[
     Literal[
         "https://www.googleapis.com/auth/youtube",

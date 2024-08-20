@@ -114,6 +114,15 @@ class AuthPipe(Protocol):
 
     def receive(self) -> str: ...
 
+
+class ConsoleAuthPipe:
+    """Class to send auth url and receive auth code through console"""
+    def send(self, auth_url: str) -> None:
+        print(auth_url)
+
+    def receive(self) -> str:
+        return input("Enter code:")
+
 AccessScopes = Iterable[
     Literal[
         "https://www.googleapis.com/auth/youtube",

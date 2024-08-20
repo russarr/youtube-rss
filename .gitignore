@@ -3,3 +3,5 @@ __pycache__
 config/config.yaml
 pyrightconfig.json
 tmp/credentials.json
+db_data
+tmp

@@ -123,6 +123,16 @@ class ConsoleAuthPipe:
     def receive(self) -> str:
         return input("Enter code:")
 
+
+class TelegramAuthPipe:
+    """Class to send auth url and receive auth code through Telegram bot"""
+    def send(self, auth_url: str) -> None:
+        raise NotImplementedError
+
+    def receive(self) -> str:
+        raise NotImplementedError
+
+
 AccessScopes = Iterable[
     Literal[
         "https://www.googleapis.com/auth/youtube",

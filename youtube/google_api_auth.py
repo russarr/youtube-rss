@@ -138,6 +138,7 @@ AccessScopes = Iterable[
 
 def create_youtube_resource(  # noqa: ANN201
     credentials_storage: CredentialsStorage | None = None,
+    auth_pipe: AuthPipe | None = None,
     auth_method: Literal["browser", "code"] = "browser",
     access_scopes: AccessScopes = ("https://www.googleapis.com/auth/youtube.readonly",),
     client_secret_file: str = "./config/client_secret.json",  # noqa: S107
@@ -153,12 +154,16 @@ def create_youtube_resource(  # noqa: ANN201
     if not credentials_storage:
         logger.debug("credentials storage is not set. Creating FileCredentialsStorage")
         credentials_storage = FileCredentialsStorage()
+    if not auth_pipe:
+        logger.debug("auth pipe is not set. Creating ConsoleAuthPipe")
+        auth_pipe = ConsoleAuthPipe()
     logger.debug("Creating youtuve api resource")
     credentials = _get_credentials(
         credentials_storage,
         client_secret_file,
         auth_method,
         access_scopes,
+        auth_pipe,
     )
     return discovery.build("youtube", "v3", credentials=credentials)
 
@@ -219,6 +224,7 @@ def _get_credentials(
     client_secret_file: str,
     auth_method: Literal["browser", "code"],
     access_scopes: AccessScopes,
+    auth_pipe: AuthPipe,
 ) -> Credentials | Credentials2 | None:
     """Function to get credentials from new auth"""
     logger.debug("Getting credentials")
@@ -273,6 +279,7 @@ def _auth_via_browser(
 def _auth_via_code(
     client_secret: Path,
     access_scopes: AccessScopes,
+    auth_pipe: AuthPipe,
 ) -> Credentials | Credentials2:
     """
     Function to authenticate with google API using code
@@ -291,8 +298,8 @@ def _auth_via_code(
     auth_url: tuple[str, str] = flow.authorization_url()
     url, _ = auth_url
 
-    print(url)
-    code = input("Enter code:")
+    auth_pipe.send(url)
+    code = auth_pipe.receive()
 
     flow.fetch_token(code=code)
     return flow.credentials

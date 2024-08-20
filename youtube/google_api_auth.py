@@ -2,7 +2,7 @@ import json
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Literal, Protocol, override
+from typing import Literal, Protocol, override
 
 from google.auth.exceptions import RefreshError
 from google.auth.external_account_authorized_user import Credentials as Credentials2
@@ -28,7 +28,7 @@ ScopeAliases = Literal[
 
 
 class CredentialsStorage(Protocol):
-    def save(self, token_info: Credentials | Credentials2) -> None: ...
+    def save(self, credentials: Credentials | Credentials2) -> None: ...
 
     def load(self) -> Credentials | None: ...
 
@@ -50,7 +50,7 @@ class FileCredentialsStorage:
             )
             self.storage_file.parent.mkdir(parents=True, exist_ok=True)
 
-    def save(self, credentials: Credentials) -> None:
+    def save(self, credentials: Credentials | Credentials2) -> None:
         """Method to save credentials to file"""
         logger.debug("Saving credentials to file: %s", self.storage_file)
         _ = self.storage_file.write_text(credentials.to_json())
@@ -175,7 +175,9 @@ def _load_client_secret_file(client_secret_file: str) -> Path:
     ./config/client_secret.json
     """
     logger.debug("Load client secret file: %s", client_secret_file)
-    url = "https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid"
+    url = (
+        "https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid"
+    )
     client_secret = Path(client_secret_file)
     if not client_secret.exists():
         msg = f"Client secret file not found at: {client_secret_file}. Visit: {url}"

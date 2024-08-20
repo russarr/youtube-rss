@@ -108,6 +108,12 @@ class DBCredentialsStorage:
     def __repr__(self) -> str:
         return f"DBCredentialsStorage(credentials={self.credentials})"
 
+
+class AuthPipe(Protocol):
+    def send(self, auth_url: str) -> None: ...
+
+    def receive(self) -> str: ...
+
 AccessScopes = Iterable[
     Literal[
         "https://www.googleapis.com/auth/youtube",

@@ -232,18 +232,11 @@ def _get_credentials(
     if not credentials:
         logger.debug("Credentials not found, running auth method: %s", auth_method)
 
-        auth_func_selector: dict[
-            Literal["browser", "code"],
-            Callable[[Path, AccessScopes], Credentials | Credentials2],
-        ] = {
-            "browser": _auth_via_browser,
-            "code": _auth_via_code,
-        }
-
-        auth_func = auth_func_selector[auth_method]
-
         client_secret = _load_client_secret_file(client_secret_file)
-        credentials = auth_func(client_secret, access_scopes)
+        if auth_method == "browser":
+            credentials = _auth_via_browser(client_secret, access_scopes)
+        else:
+            credentials = _auth_via_code(client_secret, access_scopes, auth_pipe)
 
     credentials_storage.save(credentials)
     return credentials

@@ -1,24 +1,17 @@
-from __future__ import annotations
-
 import json
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import Callable, Literal, Protocol, override
 
 from google.auth.exceptions import RefreshError
+from google.auth.external_account_authorized_user import Credentials as Credentials2
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient import discovery
 
 from youtube.utils.logger import conf_logger
-
-if TYPE_CHECKING:
-
-    from collections.abc import Iterable
-
-    from google.auth.external_account_authorized_user import Credentials as Credentials2
-
 
 logger = conf_logger(__name__, "D")
 
@@ -38,6 +31,9 @@ class CredentialsStorage(Protocol):
     def save(self, token_info: Credentials | Credentials2) -> None: ...
 
     def load(self) -> Credentials | None: ...
+
+    @override
+    def __repr__(self) -> str: ...
 
 
 class FileCredentialsStorage:
@@ -85,150 +81,177 @@ class FileCredentialsStorage:
                 )
 
             except (json.JSONDecodeError, KeyError):
-                logger.debug("Token info file: %s is corrupted", self.storage_file)
+                logger.debug("Credential file: %s is corrupted", self.storage_file)
                 return None
         else:
             logger.debug("Credentials file: %s not found", self.storage_file)
             return None
 
-
-ACCESS_SCOPES_ALIASES = {
-    "https://www.googleapis.com/auth/youtube",
-    "https://www.googleapis.com/auth/youtube.channel-memberships.creator",
-    "https://www.googleapis.com/auth/youtube.force-ssl",
-    "https://www.googleapis.com/auth/youtube.readonly",
-    "https://www.googleapis.com/auth/youtube.upload",
-    "https://www.googleapis.com/auth/youtubepartner",
-    "https://www.googleapis.com/auth/youtubepartner-channel-audit",
-}
+    @override
+    def __repr__(self) -> str:
+        return f"FileCredentialsStorage(storage_file={self.storage_file})"
 
 
-class YouTubeResource1:
+AccessScopes = Iterable[
+    Literal[
+        "https://www.googleapis.com/auth/youtube",
+        "https://www.googleapis.com/auth/youtube.channel-memberships.creator",
+        "https://www.googleapis.com/auth/youtube.force-ssl",
+        "https://www.googleapis.com/auth/youtube.readonly",
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtubepartner",
+        "https://www.googleapis.com/auth/youtubepartner-channel-audit",
+    ]
+]
+
+
+def create_youtube_resource(  # noqa: ANN201
+    credentials_storage: CredentialsStorage,
+    auth_method: Literal["browser", "code"] = "browser",
+    access_scopes: AccessScopes = ("https://www.googleapis.com/auth/youtube.readonly",),
+    client_secret_file: str = "./config/client_secret.json",  # noqa: S107
+):
+    """Funtion to get main youtube api access point"""
+    logger.debug("Creating youtuve api resource")
+    credentials = _get_credentials(
+        credentials_storage,
+        client_secret_file,
+        auth_method,
+        access_scopes,
+    )
+    return discovery.build("youtube", "v3", credentials=credentials)
+
+
+def _load_client_secret_file(client_secret_file: str) -> Path:
     """
-    Class to work with YouTube API
-    https://developers.google.com/identity/protocols/oauth2/scopes
-
+    Function to load google api client secret file
+    https://developers.google.com/api-client-library/dotnet/guide/aaa_client_secrets
+    ./config/client_secret.json
     """
+    logger.debug("Load client secret file: %s", client_secret_file)
+    url = "https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid"
+    client_secret = Path(client_secret_file)
+    if not client_secret.exists():
+        msg = f"Client secret file not found at: {client_secret_file}. Visit: {url}"
+        logger.error(msg)
+        raise FileNotFoundError(msg)
+    return client_secret
 
-    def __init__(
-        self,
-        credentials_starage: CredentialsStorage,
-        auth_method: Literal["browser", "code"] = "browser",
-        access_scopes: Iterable[str] = (
-            "https://www.googleapis.com/auth/youtube.readonly",
-        ),
-        client_secret_file: str = "./config/client_secret.json",  # noqa: S107
-    ) -> None:
-        self._credentials_starage = credentials_starage
-        self._auth_method = auth_method
-        self.access_scopes = access_scopes
-        self.client_secret_file = client_secret_file
 
-    def get_resource(self):  # noqa: ANN201
-        credentials = self._get_credentials()
-        return discovery.build("youtube", "v3", credentials=credentials)
+def _refresh_credentials(credentials: Credentials) -> Credentials:
+    """Function to refresh youtube api token"""
+    logger.debug("refreshing credentials")
+    credentials.refresh(Request())
+    return credentials
 
-    def _load_client_secret_file(self) -> Path:
-        """
-        https://developers.google.com/api-client-library/dotnet/guide/aaa_client_secrets
-        ./config/client_secret.json
-        """
-        logger.debug("Load client secret file: %s", self.client_secret_file)
-        client_secret = Path(self.client_secret_file)
-        if not client_secret.exists():
-            msg = f"Client secret file not found at: {self.client_secret_file}"
-            logger.error(msg)
-            raise FileNotFoundError(msg)
-        return client_secret
 
-    @staticmethod
-    def _refresh_credentials(credentials: Credentials) -> Credentials:
-        credentials.refresh(Request())
-        return credentials
+def _get_saved_credentials(
+    credentials_storage: CredentialsStorage,
+) -> Credentials | Credentials2 | None:
+    """
+    Function to get youtbe credentials from storage. If saved credentials is missing
+    or corrupted return None
+    """
+    logger.debug("Getting credentials from storage: %s", credentials_storage)
+    credentials = credentials_storage.load()
 
-    def _get_credentials(
-        self,
-    ) -> Credentials | Credentials2:
-        credentials = self._credentials_starage.load()
-        client_secret = self._load_client_secret_file()
+    if credentials:
+        logger.debug("Credentials loaded")
+        try:
+            credentials = _refresh_credentials(credentials)
+        except RefreshError:
+            logger.debug("Credentials from storage %s is invalid")
 
-        if credentials:
-            try:
-                credentials = self._refresh_credentials(credentials)
-            except RefreshError:
-                logger.debug("Invalid credentials, will try to new auth")
-                credentials = self._auth(client_secret)
-
-        else:
-            credentials = self._auth(client_secret)
-
-        self._credentials_starage.save(credentials)
-        return credentials
-
-    def _auth(
-        self,
-        client_secret: Path,
-    ) -> Credentials | Credentials2:
-        match self._auth_method:
-            case "browser":
-                credentials = self._auth_via_browser(client_secret)
-            case "code":
-                credentials = self._auth_via_code(client_secret)
-            case _:
-                msg = f"Unknown auth method: {self._auth_method}"
-                logger.error(msg)
-                raise ValueError(msg)
-        return credentials
-
-    def _auth_via_browser(
-        self,
-        client_secret: Path,
-    ) -> Credentials | Credentials2:
-        """
-        Function to authenticate with google API using only browser
-        Access scopes: https://developers.google.com/identity/protocols/oauth2/scopes
-        """
+    else:
         logger.debug(
-            "Auth via browser with client secret file: %s, for access scopes: %s",
-            client_secret,
-            self.access_scopes,
-        )
-        flow = InstalledAppFlow.from_client_secrets_file(
-            client_secret,
-            scopes=self.access_scopes,
+            "Credentials from storage %s not found",
+            credentials_storage,
         )
 
-        return flow.run_local_server(
-            host="localhost",
-            port=8080,
-            authorization_prompt_message="Please visit this URL: {url}",
-            success_message="The auth flow is complete; you may close this window.",
-            open_browser=True,
-        )
+    if credentials:
+        credentials_storage.save(credentials)
+    return credentials
 
-    def _auth_via_code(
-        self,
-        client_secret: Path,
-    ) -> Credentials | Credentials2:
-        """
-        Function to authenticate with google API using code
-        Access scopes: https://developers.google.com/identity/protocols/oauth2/scopes
-        """
-        logger.debug(
-            "Auth using codo with client secret file: %s, for access scopes: %s",
-            client_secret,
-            self.access_scopes,
-        )
-        flow = InstalledAppFlow.from_client_secrets_file(
-            client_secret,
-            scopes=self.access_scopes,
-            redirect_uri="urn:ietf:wg:oauth:2.0:oob",
-        )
-        auth_url: tuple[str, str] = flow.authorization_url()
-        url, _ = auth_url
 
-        print(url)
-        code = input("Enter code:")
+def _get_credentials(
+    credentials_storage: CredentialsStorage,
+    client_secret_file: str,
+    auth_method: Literal["browser", "code"],
+    access_scopes: AccessScopes,
+) -> Credentials | Credentials2 | None:
+    """Function to get credentials from new auth"""
+    logger.debug("Getting credentials")
+    credentials = _get_saved_credentials(credentials_storage)
+    if not credentials:
+        logger.debug("Credentials not found, running auth method: %s", auth_method)
 
-        flow.fetch_token(code=code)
-        return flow.credentials
+        auth_func_selector: dict[
+            Literal["browser", "code"],
+            Callable[[Path, AccessScopes], Credentials | Credentials2],
+        ] = {
+            "browser": _auth_via_browser,
+            "code": _auth_via_code,
+        }
+
+        auth_func = auth_func_selector[auth_method]
+
+        client_secret = _load_client_secret_file(client_secret_file)
+        credentials = auth_func(client_secret, access_scopes)
+
+    credentials_storage.save(credentials)
+    return credentials
+
+
+def _auth_via_browser(
+    client_secret: Path,
+    access_scopes: AccessScopes,
+) -> Credentials | Credentials2:
+    """
+    Function to authenticate with google API using only browser
+    Access scopes: https://developers.google.com/identity/protocols/oauth2/scopes
+    """
+    logger.debug(
+        "Auth via browser with client secret file: %s, for access scopes: %s",
+        client_secret,
+        access_scopes,
+    )
+    flow = InstalledAppFlow.from_client_secrets_file(
+        client_secret,
+        scopes=access_scopes,
+    )
+
+    return flow.run_local_server(
+        host="localhost",
+        port=8080,
+        authorization_prompt_message="Please visit this URL: {url}",
+        success_message="The auth flow is complete; you may close this window.",
+        open_browser=True,
+    )
+
+
+def _auth_via_code(
+    client_secret: Path,
+    access_scopes: AccessScopes,
+) -> Credentials | Credentials2:
+    """
+    Function to authenticate with google API using code
+    Access scopes: https://developers.google.com/identity/protocols/oauth2/scopes
+    """
+    logger.debug(
+        "Auth using codo with client secret file: %s, for access scopes: %s",
+        client_secret,
+        access_scopes,
+    )
+    flow = InstalledAppFlow.from_client_secrets_file(
+        client_secret,
+        scopes=access_scopes,
+        redirect_uri="urn:ietf:wg:oauth:2.0:oob",
+    )
+    auth_url: tuple[str, str] = flow.authorization_url()
+    url, _ = auth_url
+
+    print(url)
+    code = input("Enter code:")
+
+    flow.fetch_token(code=code)
+    return flow.credentials

@@ -111,7 +111,14 @@ def create_youtube_resource(  # noqa: ANN201
     access_scopes: AccessScopes = ("https://www.googleapis.com/auth/youtube.readonly",),
     client_secret_file: str = "./config/client_secret.json",  # noqa: S107
 ):
-    """Funtion to get main youtube api access point"""
+    """
+    Funtion to get main youtube api access point
+    credentials_storage: where to save credentials between sessions
+    auth_pipe: metod for send auth url and receive auth code
+    auth_method: how to auth using only browser or manual
+    access_scopes: access rights to api
+    client_secret_file: path to google api client secret file
+    """
     if not credentials_storage:
         logger.debug("credentials storage is not set. Creating FileCredentialsStorage")
         credentials_storage = FileCredentialsStorage()

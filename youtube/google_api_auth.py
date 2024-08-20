@@ -106,12 +106,15 @@ AccessScopes = Iterable[
 
 
 def create_youtube_resource(  # noqa: ANN201
-    credentials_storage: CredentialsStorage,
+    credentials_storage: CredentialsStorage | None = None,
     auth_method: Literal["browser", "code"] = "browser",
     access_scopes: AccessScopes = ("https://www.googleapis.com/auth/youtube.readonly",),
     client_secret_file: str = "./config/client_secret.json",  # noqa: S107
 ):
     """Funtion to get main youtube api access point"""
+    if not credentials_storage:
+        logger.debug("credentials storage is not set. Creating FileCredentialsStorage")
+        credentials_storage = FileCredentialsStorage()
     logger.debug("Creating youtuve api resource")
     credentials = _get_credentials(
         credentials_storage,

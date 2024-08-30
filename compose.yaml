@@ -1,0 +1,13 @@
+services:
+  db:
+    image: mongo
+    env_file:
+        - ./config/.env
+    # restart: always
+    # environment:
+    #   - MONGO_INITDB_ROOT_USERNAME=root
+    #   - MONGO_INITDB_ROOT_PASSWORD=mypass
+    volumes:
+        - ./db_data/:/data/db
+    ports:
+        - "27017:27017"

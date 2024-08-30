@@ -1,3 +1,5 @@
+import asyncio
+import itertools
 from collections.abc import Iterable
 
 import httpx
@@ -7,10 +9,9 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 
 from youtube.db import (
-    get_subscriptions_from_db,
     read_last_video_ids_for_channel_from_db,
     save_items_to_db,
-    save_subscriptions_in_db,
+    save_subscriptions_to_db,
 )
 from youtube.google_api_auth import create_youtube_resource
 from youtube.rss import form_rss_feed_from_videos_list
@@ -26,16 +27,19 @@ from youtube.youtube_api import (
 logger = conf_logger(__name__, "D")
 
 
-def _get_channel_rss_feed(channel_id: str) -> bytes | None:
+async def _get_channel_rss_feed(channel_id: str) -> bytes | None:
     """Function for getting channel rss feed"""
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     logger.debug("Getting rss feed for channel %s", channel_id)
     try:
-        response = httpx.get(rss_url).raise_for_status()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(rss_url)
+        response.raise_for_status()
     except httpx.ConnectError:
         msg = f"Connection error while getting rss feed for channl {channel_id}"
         logger.exception(msg)
         raise
+    logger.debug("Got rss feed for channel %s", channel_id)
     return response.content
 
 
@@ -59,7 +63,7 @@ def _get_video_ids_from_rss(rss_feed) -> tuple[str, ...]:
     return video_ids
 
 
-def _get_channel_new_video_ids(
+async def _get_channel_new_video_ids(
     channel_id: str,
     vid_collection,
 ) -> tuple[str, ...]:
@@ -69,7 +73,7 @@ def _get_channel_new_video_ids(
         "Getting only new video ids(rss exclude db) for channel %s",
         channel_id,
     )
-    rss_feed = _get_channel_rss_feed(channel_id)
+    rss_feed = await _get_channel_rss_feed(channel_id)
     rss_video_ids: tuple[str, ...] = _get_video_ids_from_rss(rss_feed)
     ids_in_db: tuple[str, ...] = read_last_video_ids_for_channel_from_db(
         vid_collection,
@@ -95,16 +99,21 @@ def _is_channel_new_subscription(
     return check
 
 
-def get_new_video_ids_for_all_channels(
+async def get_new_video_ids_for_all_channels(
     channel_ids: Iterable[str],
     vid_collection: Collection,
 ) -> tuple[str, ...]:
     """Function for getting new video ids for all channels"""
     logger.debug("Getting new video ids for all channels")
-    video_ids = []
-    for channel_id in channel_ids:
-        video_ids.extend(_get_channel_new_video_ids(channel_id, vid_collection))
-    return tuple(video_ids)
+    # video_ids = []
+    tasks = [
+        asyncio.create_task(_get_channel_new_video_ids(channel_id, vid_collection))
+        for channel_id in channel_ids
+    ]
+    ids = await asyncio.gather(*tasks)
+# TODO: Create exceptions
+    return tuple(itertools.chain.from_iterable(ids))
+    # return tuple(video_ids)
 
 
 def get_channel_all_video_ids_from_api(
@@ -125,21 +134,21 @@ def extract_channel_ids_from_subscriptions(
     return tuple(s.snippet.resourceId.channelId for s in subscriptions)
 
 
-def create_video_ids_list_for_rss_feed(
+async def create_video_ids_list_for_rss_feed(
     db: Database,
     youtube,
 ) -> tuple[str, ...]:
     subscriptions = get_subscriptions_from_api(youtube=youtube)
-    save_subscriptions_in_db(db, subscriptions)
+    save_subscriptions_to_db(db, subscriptions)
     channel_ids = extract_channel_ids_from_subscriptions(subscriptions)
-    video_ids = get_new_video_ids_for_all_channels(channel_ids, db.videos)
+    video_ids = await get_new_video_ids_for_all_channels(channel_ids, db.videos)
     videos = get_videos_info_from_api(youtube=youtube, video_ids=video_ids)
 
     save_items_to_db(db.videos, videos)
     return video_ids
 
 
-def generate_rss_feed() -> bytes:
+async def generate_rss_feed() -> bytes:
     """Function to generate RSS feed"""
     logger.debug("Generating rss feed")
 
@@ -157,6 +166,6 @@ def generate_rss_feed() -> bytes:
     db.videos.create_index("snippet.channelId")
     db.videos.create_index("snippet.publishedAt")
 
-    video_ids = create_video_ids_list_for_rss_feed(db, youtube)
+    video_ids = await create_video_ids_list_for_rss_feed(db, youtube)
     rss_feed = form_rss_feed_from_videos_list(db, video_ids)
     return rss_feed

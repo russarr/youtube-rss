@@ -1,7 +1,6 @@
 from collections.abc import Iterable
-from typing import Literal, Sequence
 
-from pymongo import InsertOne, UpdateMany, UpdateOne
+from pymongo import UpdateOne
 from pymongo.collection import Collection
 from pymongo.database import Database
 
@@ -21,7 +20,7 @@ def get_subscriptions_from_db(collection: Collection) -> set[Subscription]:
 
 def save_items_to_db(
     collection: Collection,
-    items: set[SearchResultVideo] | set[Subscription] | set[VideoItem],
+    items: set[SearchResultVideo] | set[VideoItem],
 ) -> None:
     """Function to save items to db collection"""
     logger.debug("Saving %s items to db collection: %s", len(items), collection.name)

@@ -117,20 +117,6 @@ def get_channel_all_video_ids_from_api(
     return tuple(i.id.videoId for i in videos)
 
 
-def update_subscriptions_in_db(
-    api_subscriptions: set[Subscription],
-    subscript_coll: Collection,
-) -> None:
-    """
-    Function get subscriptions from api, comaped them with subscriptions from db and
-    save new subscriptions to db
-    """
-    db_subscriptions = get_subscriptions_from_db(subscript_coll)
-    new_subscriptions = api_subscriptions - db_subscriptions
-    logger.debug("Updating %s subscriptions in db", len(new_subscriptions))
-    save_items_to_db(subscript_coll, new_subscriptions)
-
-
 def extract_channel_ids_from_subscriptions(
     subscriptions: Iterable[Subscription],
 ) -> tuple[str, ...]:

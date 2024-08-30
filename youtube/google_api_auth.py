@@ -13,7 +13,7 @@ from googleapiclient import discovery
 
 from youtube.utils.logger import conf_logger
 
-logger = conf_logger(__name__, "D")
+logger = conf_logger(__name__, "E")
 
 
 ScopeAliases = Literal[

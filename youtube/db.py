@@ -101,7 +101,7 @@ def read_last_video_ids_for_channel_from_db(
     return last_video_ids
 
 
-def save_subscriptions_in_db(
+def save_subscriptions_to_db(
     db: Database,
     subscriptions: Iterable[Subscription],
 ) -> None:

@@ -117,6 +117,7 @@ class AuthPipe(Protocol):
 
 class ConsoleAuthPipe:
     """Class to send auth url and receive auth code through console"""
+
     def send(self, auth_url: str) -> None:
         print(auth_url)
 
@@ -126,6 +127,7 @@ class ConsoleAuthPipe:
 
 class TelegramAuthPipe:
     """Class to send auth url and receive auth code through Telegram bot"""
+
     def send(self, auth_url: str) -> None:
         raise NotImplementedError
 
@@ -219,6 +221,7 @@ def _get_saved_credentials(
             credentials = _refresh_credentials(credentials)
         except RefreshError:
             logger.debug("Credentials from storage %s is invalid")
+            return None
 
     else:
         logger.debug(

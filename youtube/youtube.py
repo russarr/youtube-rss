@@ -1,144 +1,176 @@
-# ruff: noqa: ERA001, S301
-# TODO : del ruff ignore
-# pyright: reportUnusedImport=false
-import json
-import pickle
-from datetime import UTC, datetime
-from pathlib import Path
-from pprint import pprint
+from collections.abc import Iterable
 
-from google.auth.external_account_authorized_user import Credentials as Credentials2
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient import discovery
+import httpx
+from lxml import etree
+from pymongo import MongoClient
+from pymongo.collection import Collection
+from pymongo.database import Database
 
-from youtube.schemas import SearchResult, Subscription, SubscriptionRequest, Video
-
-client_secret = Path("./config/client_secret.json")
-
-
-def save_credentials(credentials: Credentials | Credentials2) -> None:
-    """Function to save credentials to disk"""
-    _ = Path("tmp/credentials.json").write_text(credentials.to_json())
-
-
-def load_credentials() -> Credentials:
-    """Function to load credentials from disk"""
-    with Path("tmp/credentials.json").open("r") as f:
-        credentials: dict[str, str] = json.load(f)
-
-    # обрезаем Z в timestamp, иначе при request.execute() возникает ошибка с naive date
-    expiration_date = datetime.fromisoformat(credentials["expiry"].rstrip("Z"))
-
-    return Credentials(
-        token=credentials["token"],
-        refresh_token=credentials["refresh_token"],
-        token_uri=credentials["token_uri"],
-        client_id=credentials["client_id"],
-        client_secret=credentials["client_secret"],
-        scopes=credentials["scopes"],
-        universe_domain=credentials["universe_domain"],
-        account=credentials["account"],
-        expiry=expiration_date,
-    )
-
-
-flow = InstalledAppFlow.from_client_secrets_file(
-    client_secret,
-    scopes=["https://www.googleapis.com/auth/youtube.readonly"],
+from youtube.db import (
+    get_subscriptions_from_db,
+    read_last_video_ids_for_channel_from_db,
+    save_items_to_db,
+    save_subscriptions_in_db,
 )
-# print(flow.authorization_url()[0] + "&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2F")
-# credentials = flow.run_local_server(
-#     host="localhost",
-#     port=8080,
-#     authorization_prompt_message="Please visit this URL: {url}",
-#     success_message="The auth flow is complete; you may close this window.",
-#     open_browser=True,
-# )
-#
-# save_credentials(credentials)
-credentials = load_credentials()
-credentials.refresh(Request())
+from youtube.google_api_auth import create_youtube_resource
+from youtube.rss import form_rss_feed_from_videos_list
+from youtube.schemas import Subscription
+from youtube.utils.logger import conf_logger
+from youtube.youtube_api import (
+    VideoDuration,
+    get_subscriptions_from_api,
+    get_videos_info_from_api,
+    search_videos_from_api,
+)
+
+logger = conf_logger(__name__, "D")
 
 
-youtube = discovery.build("youtube", "v3", credentials=credentials)
+def _get_channel_rss_feed(channel_id: str) -> bytes | None:
+    """Function for getting channel rss feed"""
+    rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    logger.debug("Getting rss feed for channel %s", channel_id)
+    try:
+        response = httpx.get(rss_url).raise_for_status()
+    except httpx.ConnectError:
+        msg = f"Connection error while getting rss feed for channl {channel_id}"
+        logger.exception(msg)
+        raise
+    return response.content
 
 
-def get_subscriptions(
-    youtube,  # pyright: ignore [reportMissingParameterType, reportUnknownParameterType]
-    results_per_page: int = 50,
-) -> list[Subscription]:
-    """
-    results_per_page from 0 to 50
-    """
-
-    request = (  # pyright: ignore [reportUnknownVariableType]
-        youtube.subscriptions().list(
-            part="snippet",
-            mine=True,  # авторизация по моему аккаунту
-            maxResults=results_per_page,
-            order="alphabetical",
-        )
+def _get_video_ids_from_rss(rss_feed) -> tuple[str, ...]:
+    """Function parse rss feed and return video ids"""
+    logger.debug("Extracting video ids from rss feed")
+    rss = etree.fromstring(rss_feed)  # noqa: S320
+    namespaces = {
+        "atom": "http://www.w3.org/2005/Atom",
+        "yt": "http://www.youtube.com/xml/schemas/2015",
+        "media": "http://search.yahoo.com/mrss/",
+    }
+    video_ids = rss.xpath(
+        "//atom:entry/yt:videoId/text()",
+        namespaces=namespaces,
     )
-    response = request.execute()  # pyright: ignore [reportUnknownVariableType]
-    # pprint(response)
-    subsriptons_result = SubscriptionRequest.model_validate(response)
-    subscriptions = subsriptons_result.items
-    total_results = subsriptons_result.pageInfo.totalResults
-    for _ in range(total_results // results_per_page):
-
-        request = (  # pyright: ignore [reportUnknownVariableType]
-            youtube.search().list_next(request, response)
-        )
-
-        response = request.execute()  # pyright: ignore [reportUnknownVariableType]
-        subsriptons_result_batch = SubscriptionRequest.model_validate(response)
-        subscriptions_batch = subsriptons_result_batch.items
-
-        if subscriptions_batch:
-            subscriptions.extend(subscriptions_batch)
-    return subscriptions
+    video_ids = tuple(
+        str(i) for i in video_ids  # pyright: ignore [reportGeneralTypeIssues]
+    )
+    logger.debug("Extracted %s video ids from rss feed: %s", len(video_ids), video_ids)
+    return video_ids
 
 
-subscriptions = get_subscriptions(youtube)
-pprint(subscriptions[:5])
-
-channel_id = "UC-gsAeVs_SbabaClSR5FTlw"
-
-
-def get_channel_videos(
-    youtube,  # pyright: ignore [reportMissingParameterType, reportUnknownParameterType]
+def _get_channel_new_video_ids(
     channel_id: str,
-    results_per_page: int = 50,
-) -> list[Video]:
-
-    request = youtube.search().list(  # pyright: ignore [reportUnknownVariableType]
-        part="snippet",
-        channelId=channel_id,
-        order="date",
-        type="video",
-        maxResults=results_per_page,
+    vid_collection,
+) -> tuple[str, ...]:
+    """Function get video ids from rss. Compared them with ids in db.
+    And return only new ids"""
+    logger.debug(
+        "Getting only new video ids(rss exclude db) for channel %s",
+        channel_id,
     )
-    response = request.execute()  # pyright: ignore [reportUnknownVariableType]
-    search_result = SearchResult.model_validate(response)
-    total_results = search_result.pageInfo.totalResults
-    videos = search_result.items
-    for _ in range(total_results // results_per_page):
-        request = (  # pyright: ignore [reportUnknownVariableType]
-            youtube.search().list_next(
-                request,
-                response,
-            )
-        )
-        response = request.execute()  # pyright: ignore [reportUnknownVariableType]
-        search_result_batch = SearchResult.model_validate(response)
-        videos_batch = search_result_batch.items
-
-        if videos_batch:
-            videos.extend(videos_batch)
-    return videos
+    rss_feed = _get_channel_rss_feed(channel_id)
+    rss_video_ids: tuple[str, ...] = _get_video_ids_from_rss(rss_feed)
+    ids_in_db: tuple[str, ...] = read_last_video_ids_for_channel_from_db(
+        vid_collection,
+        channel_id,
+    )
+    new_video_ids = tuple(set(rss_video_ids) - set(ids_in_db))
+    logger.debug(
+        "For channel %s found %s new video ids: %s",
+        channel_id,
+        len(new_video_ids),
+        new_video_ids,
+    )
+    return new_video_ids
 
 
-# get_channel_videos(youtube, "UCGWankrDBVbjUjhSR1aG-hQ")
-# pprint(get_channel_videos(youtube, "UCGWankrDBVbjUjhSR1aG-hQ")[:5])
+def _is_channel_new_subscription(
+    ids_in_db: tuple[str, ...],
+    channel_id: str,
+) -> bool:
+    """Function check if channel is new subscription"""
+    check = len(ids_in_db) == 0
+    logger.debug("Channel: %s is new subscription: %s", channel_id, check)
+    return check
+
+
+def get_new_video_ids_for_all_channels(
+    channel_ids: Iterable[str],
+    vid_collection: Collection,
+) -> tuple[str, ...]:
+    """Function for getting new video ids for all channels"""
+    logger.debug("Getting new video ids for all channels")
+    video_ids = []
+    for channel_id in channel_ids:
+        video_ids.extend(_get_channel_new_video_ids(channel_id, vid_collection))
+    return tuple(video_ids)
+
+
+def get_channel_all_video_ids_from_api(
+    youtube,
+    channel_id: str,
+    duration: VideoDuration = "any",
+) -> tuple[str, ...]:
+    """Function for getting all video ids from channel"""
+    videos = search_videos_from_api(youtube, channel_id=channel_id, duration=duration)
+    return tuple(i.id.videoId for i in videos)
+
+
+def update_subscriptions_in_db(
+    api_subscriptions: set[Subscription],
+    subscript_coll: Collection,
+) -> None:
+    """
+    Function get subscriptions from api, comaped them with subscriptions from db and
+    save new subscriptions to db
+    """
+    db_subscriptions = get_subscriptions_from_db(subscript_coll)
+    new_subscriptions = api_subscriptions - db_subscriptions
+    logger.debug("Updating %s subscriptions in db", len(new_subscriptions))
+    save_items_to_db(subscript_coll, new_subscriptions)
+
+
+def extract_channel_ids_from_subscriptions(
+    subscriptions: Iterable[Subscription],
+) -> tuple[str, ...]:
+    """Function extract channel ids from subscription items"""
+    logger.debug("Extracting channel ids from subscriptions")
+    return tuple(s.snippet.resourceId.channelId for s in subscriptions)
+
+
+def create_video_ids_list_for_rss_feed(
+    db: Database,
+    youtube,
+) -> tuple[str, ...]:
+    subscriptions = get_subscriptions_from_api(youtube=youtube)
+    save_subscriptions_in_db(db, subscriptions)
+    channel_ids = extract_channel_ids_from_subscriptions(subscriptions)
+    video_ids = get_new_video_ids_for_all_channels(channel_ids, db.videos)
+    videos = get_videos_info_from_api(youtube=youtube, video_ids=video_ids)
+
+    save_items_to_db(db.videos, videos)
+    return video_ids
+
+
+def generate_rss_feed() -> bytes:
+    """Function to generate RSS feed"""
+    logger.debug("Generating rss feed")
+
+    client = MongoClient(
+        host="127.0.0.1",
+        port=27017,
+        username="root",
+        password="mypass",
+    )
+    db = client.youtube
+    youtube = create_youtube_resource()
+
+    db.subscriptions.create_index("snippet.resourceId.channelId", unique=True)
+    db.videos.create_index("id", unique=True)
+    db.videos.create_index("snippet.channelId")
+    db.videos.create_index("snippet.publishedAt")
+
+    video_ids = create_video_ids_list_for_rss_feed(db, youtube)
+    rss_feed = form_rss_feed_from_videos_list(db, video_ids)
+    return rss_feed

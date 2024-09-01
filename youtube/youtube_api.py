@@ -9,7 +9,6 @@ from pathlib import Path
 from pprint import pprint
 from typing import Literal, Sequence
 
-import httpx
 # from google.auth.external_account_authorized_user import Credentials as Credentials2
 from google.oauth2.credentials import Credentials
 from googleapiclient import discovery

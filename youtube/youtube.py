@@ -2,7 +2,7 @@ import asyncio
 import itertools
 from collections.abc import Iterable
 
-import httpx
+import aiohttp
 from lxml import etree
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -32,15 +32,16 @@ async def _get_channel_rss_feed(channel_id: str) -> bytes | None:
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     logger.debug("Getting rss feed for channel %s", channel_id)
     try:
-        async with httpx.AsyncClient() as client:
+        async with aiohttp.ClientSession() as client:
             response = await client.get(rss_url)
-        response.raise_for_status()
-    except httpx.ConnectError:
+            rss_content = await response.read()
+
+    except aiohttp.ClientError:
         msg = f"Connection error while getting rss feed for channl {channel_id}"
         logger.exception(msg)
         raise
     logger.debug("Got rss feed for channel %s", channel_id)
-    return response.content
+    return rss_content
 
 
 def _get_video_ids_from_rss(rss_feed) -> tuple[str, ...]:
@@ -111,7 +112,7 @@ async def get_new_video_ids_for_all_channels(
         for channel_id in channel_ids
     ]
     ids = await asyncio.gather(*tasks)
-# TODO: Create exceptions
+    # TODO: Create exceptions
     return tuple(itertools.chain.from_iterable(ids))
     # return tuple(video_ids)
 

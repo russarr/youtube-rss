@@ -14,7 +14,7 @@ from youtube.db import (
     save_subscriptions_to_db,
 )
 from youtube.google_api_auth import create_youtube_resource
-from youtube.rss import form_rss_feed_from_videos_list
+from youtube.rss import form_rss_20_feed_from_videos_list
 from youtube.schemas import Subscription
 from youtube.utils.logger import conf_logger
 from youtube.youtube_api import (
@@ -168,5 +168,5 @@ async def generate_rss_feed() -> bytes:
     db.videos.create_index("snippet.publishedAt")
 
     video_ids = await create_video_ids_list_for_rss_feed(db, youtube)
-    rss_feed = form_rss_feed_from_videos_list(db, video_ids)
+    rss_feed = form_rss_20_feed_from_videos_list(db, video_ids)
     return rss_feed

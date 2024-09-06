@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <title>YouTube Subscriptions</title>
+    <link href="http://188.226.92.195:46785/rss" rel="self"/>
+    <link href="http://188.226.92.195:46785/"/>
+    <updated>{{updated}}</updated>
+    <author>
+        <name>russarr</name>
+        <email>russarr@gmail.com</email>
+    </author>
+    {% for video in videos %}
+    <entry>
+        <id>{{ video.id }}</id>
+        <title><![CDATA[{{ video.snippet.channelTitle }} --({{ parse_video_duration(video) }})-- {{ video.snippet.title }}]]></title>
+        <link href="https://www.youtube.com/watch?v={{ video.id }}"/>
+        <published>{{ video.snippet.publishedAt.strftime("%FT%T.%f")[:-3] ~ "Z" }}</published>
+        <author>{{ video.snippet.channelTitle }}</author>
+        <uri>{{ video.snippet.channelTitle }}</uri>
+        <summary><![CDATA[{{ video.player.embedHtml }}<p>Published: {{ video.snippet.publishedAt | local_time_filter }}</p><p>{{ convert_description_to_html(video) }}</p>]]></summary>
+    </entry> 
+    {% endfor %}
+</feed>

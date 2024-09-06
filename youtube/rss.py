@@ -1,13 +1,17 @@
 from collections import deque
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Literal
+from zoneinfo import ZoneInfo
 
 import isodate
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from lxml import etree
 from lxml.etree import CDATA, Element, QName, SubElement, _Element
 from pymongo.database import Database
 
 from youtube.db import read_videos_from_db_by_id_list
+from youtube.exeptions import SettingsError
 from youtube.schemas import VideoItem
 from youtube.utils.logger import conf_logger
 
@@ -49,156 +53,77 @@ def _load_rss_deque_from_db(db: Database, rss_len: int = 40) -> deque[str]:
     return rss_deque
 
 
-def create_rss_header() -> _Element:
-    """Function create header and root element for RSS.
-    Return lxml root Element"""
-    feed = Element("feed", nsmap=xml_namespaces)
-    feed.attrib["xmlns"] = "http://www.w3.org/2005/Atom"
-    script = SubElement(feed, "script")
-    script.attrib["xmlns"] = ""
-
-    # script.attrib["id"] = "webrtc-control-b"
-
-    SubElement(feed, "title").text = "My rss channel name"
-    author = SubElement(feed, "author")
-    SubElement(author, "name").text = "russarr"
-    # TODO: set my links
-    SubElement(
-        feed,
-        "link",
-        rel="self",
-        href="http://188.226.92.195:46785/",
-    )
-    SubElement(
-        feed,
-        "link",
-        rel="alternate",
-        href="http://188.226.92.195:46785/",
-    )
-    SubElement(feed, "published").text = "2022-01-01T00:00:00+00:00"
-    # TODO: rss channel image
-    """
-       <image>
-        <url>https://www.yaplakal.com/html/static/top-logo.png</url>
-        <title>ЯПлакалъ - развлекательное сообщество</title>
-        <link>https://www.yaplakal.com</link>
-       </image>
-
-    """
-    return feed
-
-
-def create_rss_20_header() -> _Element:
-    """Function create header and root element for RSS 2.0.
-    Return lxml root Element"""
-    logger.debug("Creating rss 2.0 header")
-    xml = '<rss version="2.0">'
-    channel = Element("channel")
-
-    SubElement(channel, "title").text = "My youtube subscriptions"
-    # author = SubElement(feed, "author")
-    # SubElement(author, "name").text = "russarr"
-    # TODO: set my links
-    SubElement(channel, "link").text = "http://188.226.92.195:46785/rss"
-    SubElement(channel, "description").text = "My youtube subscriptions"
-    # TODO: rss channel image
-    """
-       <image>
-        <url>https://www.yaplakal.com/html/static/top-logo.png</url>
-        <title>ЯПлакалъ - развлекательное сообщество</title>
-        <link>https://www.yaplakal.com</link>
-       </image>
-
-    """
-    logger.debug("RSS 2.0 header created %s", etree.tostring(channel))
-    return channel
-
-
-def parse_video_duration(raw_duration: str) -> str:
-    duration = isodate.parse_duration(raw_duration)
+def parse_video_duration(video: VideoItem) -> str:
+    """Function parse video duration and return it as string"""
+    if video.contentDetails is None:
+        msg = (
+            f"Video {video.id} has no content details field. "
+            "Check that 'contentDetails' is inluded in 'part' argument for"
+            "'get_videos_info_from_api' function"
+        )
+        logger.error(msg)
+        raise SettingsError(msg)
+    duration = isodate.parse_duration(video.contentDetails.duration)
     return str(timedelta(seconds=duration.total_seconds()))
 
-def contvert_description_to_html(description: str) -> str:
+
+def convert_description_to_html(video: VideoItem) -> str:
+    """Function convert description to html to embed in rss item as html <p>"""
     html_description = []
-    for line in description.splitlines():
+    for line in video.snippet.description.splitlines():
         html_description.append(f"<p>{line}</p>")
     return "".join(html_description)
 
 
-def create_rss_20_item_entry_for_video(video: VideoItem) -> _Element:
-    """Function create rss 2.0 item entry for video.
-    Return lxml entry Element"""
-    logger.debug("Creating rss 2.0 item entry for video %s", video.id)
-    item = Element("item")
-    video_duration = parse_video_duration(video.contentDetails.duration)
-    SubElement(item, "title").text = (
-        f"{video.snippet.channelTitle}  -- ({video_duration})  -- {video.snippet.title}"
+def local_time_filter(date: datetime, format_="<%H:%M> %d.%m.%y") -> str:
+    local_tz = ZoneInfo("Asia/Yekaterinburg")
+    local_dt = date.astimezone(tz=local_tz)
+    local_dt.replace(tzinfo=local_tz)
+    return local_dt.strftime(format_)
+
+
+def _get_player_html_iframe(video: VideoItem) -> str:
+    if video.player is None:
+        msg = (
+            f"Video {video.id} has no player field. "
+            "Check that 'player' is inluded in 'part' argument for"
+            "'get_videos_info_from_api' function"
+        )
+        logger.error(msg)
+        raise SettingsError(msg)
+    return video.player.embedHtml
+
+def strip_str_from_amp(text: str) -> str:
+    """Function to strip & (ampersands) from string.
+    Ampersand is escaped symobol in xml.
+    """
+    return text.replace("&", "&amp")
+def create_rss_from_template(
+    videos: Iterable[VideoItem], template_path: Literal["rss20.jinja", "atom.jinja"]
+) -> bytes:
+    """Function to create rss xml from template"""
+    logger.debug("Creating rss xml from template")
+    env = Environment(
+        loader=FileSystemLoader("youtube/templates"),
+        autoescape=select_autoescape(["html", "xml"]),
     )
-    SubElement(item, "link").text = f"https://www.youtube.com/watch?v={video.id}"
-    description = SubElement(item, "description")
-    html_description = contvert_description_to_html(video.snippet.description)
-    description.text = CDATA(f"<div>{ video.player.embedHtml }<p>{html_description}</p><div>")
-    logger.debug("RSS 2.0 item for video %s created", video.id)
+    env.globals["parse_video_duration"] = parse_video_duration
+    env.globals["convert_description_to_html"] = convert_description_to_html
+    env.filters["local_time_filter"] = local_time_filter
 
-    return item
+    template = env.get_template(template_path)
 
+    # TODO: вынести загрузку шаблона на самый верх в точку доступа, чтобы не читать с \
+    # диска каждый раз при создании ленты
 
-def create_rss_item_entry_for_video(video: VideoItem) -> _Element:
-    """Function create rss item entry for video.
-    Return lxml entry Element"""
-    entry = Element("entry")
-    SubElement(entry, "id").text = f"yt:video:{video.id}"
-    SubElement(entry, QName(xml_namespaces["yt"], "videoId")).text = video.id
-    SubElement(entry, QName(xml_namespaces["yt"], "channelId")).text = (
-        video.snippet.channelId
+    result = template.render(
+        videos=videos,
+        updated=datetime.now(timezone.utc).isoformat(),
     )
-    SubElement(entry, "title").text = video.snippet.title
-    SubElement(entry, "published").text = video.snippet.publishedAt.isoformat()
-
-    video_link = f"https://www.youtube.com/watch?v={video.id}"
-    SubElement(entry, "link", rel="alternate", href=video_link)
-
-    author = SubElement(entry, "author")
-    SubElement(author, "name").text = video.snippet.channelTitle
-
-    author_url = f"https://www.youtube.com/channel/{video.snippet.channelId}"
-    SubElement(author, "uri").text = author_url
-
-    description = SubElement(entry, "description")
-    description.text = CDATA("<b>test_text</b>")
-
-    media = SubElement(entry, QName(xml_namespaces["media"], "group"))
-    SubElement(media, QName(xml_namespaces["media"], "title")).text = (
-        video.snippet.title
-    )
-    SubElement(
-        media,
-        QName(xml_namespaces["media"], "content"),
-        attrib={
-            "url": f"https://www.youtube.com/v/{video.id}?version=3",
-            "type": "application/x-shockwave-flash",
-            "width": "640",
-            "height": "390",
-        },
-    )
-    SubElement(
-        media,
-        QName(xml_namespaces["media"], "thumbnail"),
-        attrib={
-            "url": str(
-                video.snippet.thumbnails.default.url,
-            ),  # TODO: check thumbnail type
-            "width": "480",
-            "height": "360",
-        },
-    )
-    SubElement(media, QName(xml_namespaces["media"], "description")).text = (
-        video.snippet.description
-    )
-    return entry
+    return result.encode()
 
 
-def form_rss_20_feed_from_videos_list(db: Database, video_ids: Iterable[str]) -> bytes:
+def form_rss_feed_from_videos_list(db: Database, video_ids: Iterable[str]) -> bytes:
     """Function create rss 2.0 feed"""
     logger.debug("Forming rss 2.0 feed from video ids: %s", video_ids)
     rss_deque = _load_rss_deque_from_db(db)
@@ -207,24 +132,7 @@ def form_rss_20_feed_from_videos_list(db: Database, video_ids: Iterable[str]) ->
 
     videos = read_videos_from_db_by_id_list(db.videos, rss_deque)
 
-    feed = create_rss_20_header()
-    for video in videos:
-        entry = create_rss_20_item_entry_for_video(video)
-        feed.append(entry)
-
+    xml = create_rss_from_template(videos, "rss20.jinja")
     logger.debug("RSS feed created")
+    return xml
 
-    rss = Element("rss")
-    rss.attrib["version"] = "2.0"
-    rss.append(feed)
-    return etree.tostring(  # pyright: ignore [reportAttributeAccessIssue]
-        rss,
-        encoding="utf-8",
-        pretty_print=True,
-    )
-
-
-if __name__ == "__main__":
-    res = create_rss_header()
-    res = etree.tostring(res, xml_declaration=True, encoding="utf-8")
-    print(res.decode("utf-8"))

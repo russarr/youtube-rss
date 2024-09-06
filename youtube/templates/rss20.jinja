@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+<channel>
+<title>YouTube Subscriptions</title>
+<description>RSS is a fascinating technology. The uses for RSS are expanding daily.</description>
+<link>http://188.226.92.195:46785/rss</link>
+{% for video in videos %}
+    <item>
+    <title><![CDATA[{{ video.snippet.channelTitle }} --({{ parse_video_duration(video) }})-- {{ video.snippet.title }}]]></title>
+    <description><![CDATA[{{ video.player.embedHtml }}
+    <p>Published: {{ video.snippet.publishedAt | local_time_filter }}</p>
+    <p>{{ convert_description_to_html(video) }}</p>
+    ]]></description>
+    <link>https://www.youtube.com/watch?v={{ video.id }}</link>
+<pubDate>{{ video.snippet.publishedAt.strftime("%FT%T.%f")[:-3] ~ "Z" }}</pubDate>
+</item>
+{% endfor %}
+</channel>
+</rss>

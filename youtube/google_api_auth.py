@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Iterable
 from datetime import datetime
@@ -26,6 +27,10 @@ ScopeAliases = Literal[
     "audit",
 ]
 
+
+async def ainput(prompt: str) -> str:
+    """Function to run async console input"""
+    return await asyncio.to_thread(input, f"{prompt} ")
 
 class CredentialsStorage(Protocol):
     def save(self, credentials: Credentials | Credentials2) -> None: ...
@@ -112,17 +117,17 @@ class DBCredentialsStorage:
 class AuthPipe(Protocol):
     def send(self, auth_url: str) -> None: ...
 
-    def receive(self) -> str: ...
+    async def receive(self) -> str: ...
 
 
 class ConsoleAuthPipe:
     """Class to send auth url and receive auth code through console"""
 
     def send(self, auth_url: str) -> None:
-        print(auth_url)
+        print(f"Visit: {auth_url} then print auth code to console")
 
-    def receive(self) -> str:
-        return input("Enter code:")
+    async def receive(self) -> str:
+        return await ainput("Enter google auth code:")
 
 
 class TelegramAuthPipe:
@@ -148,7 +153,7 @@ AccessScopes = Iterable[
 ]
 
 
-def create_youtube_resource(  # noqa: ANN201
+async def create_youtube_resource(  # noqa: ANN201
     credentials_storage: CredentialsStorage | None = None,
     auth_pipe: AuthPipe | None = None,
     auth_method: Literal["browser", "code"] = "browser",
@@ -169,8 +174,8 @@ def create_youtube_resource(  # noqa: ANN201
     if not auth_pipe:
         logger.debug("auth pipe is not set. Creating ConsoleAuthPipe")
         auth_pipe = ConsoleAuthPipe()
-    logger.debug("Creating youtuve api resource")
-    credentials = _get_credentials(
+    logger.debug("Creating youtube api resource")
+    credentials = await _get_credentials(
         credentials_storage,
         client_secret_file,
         auth_method,
@@ -234,7 +239,7 @@ def _get_saved_credentials(
     return credentials
 
 
-def _get_credentials(
+async def _get_credentials(
     credentials_storage: CredentialsStorage,
     client_secret_file: str,
     auth_method: Literal["browser", "code"],
@@ -251,7 +256,7 @@ def _get_credentials(
         if auth_method == "browser":
             credentials = _auth_via_browser(client_secret, access_scopes)
         else:
-            credentials = _auth_via_code(client_secret, access_scopes, auth_pipe)
+            credentials = await _auth_via_code(client_secret, access_scopes, auth_pipe)
 
     credentials_storage.save(credentials)
     return credentials
@@ -284,7 +289,7 @@ def _auth_via_browser(
     )
 
 
-def _auth_via_code(
+async def _auth_via_code(
     client_secret: Path,
     access_scopes: AccessScopes,
     auth_pipe: AuthPipe,
@@ -307,7 +312,7 @@ def _auth_via_code(
     url, _ = auth_url
 
     auth_pipe.send(url)
-    code = auth_pipe.receive()
+    code = await auth_pipe.receive()
 
     flow.fetch_token(code=code)
     return flow.credentials

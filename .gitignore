@@ -1,6 +1,6 @@
 __pycache__
 .env
-config/config.yaml
+config/client_secret.json
 pyrightconfig.json
 tmp/credentials.json
 db_data

@@ -160,7 +160,7 @@ async def generate_rss_feed() -> bytes:
         password="mypass",
     )
     db = client.youtube
-    youtube = create_youtube_resource()
+    youtube = await create_youtube_resource(auth_method="code")
 
     #TODO: вынести создание youtube resuorce и подключение к бд на самый верх \
             # чтобы не подключаться каждый раз

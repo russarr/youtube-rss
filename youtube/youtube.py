@@ -154,7 +154,7 @@ async def generate_rss_feed() -> bytes:
     logger.debug("Generating rss feed")
 
     client = MongoClient(
-        host="127.0.0.1",
+        host="mongodb",
         port=27017,
         username="root",
         password="mypass",

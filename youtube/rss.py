@@ -6,8 +6,6 @@ from zoneinfo import ZoneInfo
 
 import isodate
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from lxml import etree
-from lxml.etree import CDATA, Element, QName, SubElement, _Element
 from pymongo.database import Database
 
 from youtube.db import read_videos_from_db_by_id_list
@@ -19,7 +17,7 @@ logger = conf_logger(__name__, "D")
 
 
 xml_namespaces = {
-    # "atom": "http://www.w3.org/2005/Atom",
+    "atom": "http://www.w3.org/2005/Atom",
     "yt": "http://www.youtube.com/xml/schemas/2015",
     "media": "http://search.yahoo.com/mrss/",
 }
@@ -93,13 +91,17 @@ def _get_player_html_iframe(video: VideoItem) -> str:
         raise SettingsError(msg)
     return video.player.embedHtml
 
+
 def strip_str_from_amp(text: str) -> str:
     """Function to strip & (ampersands) from string.
     Ampersand is escaped symobol in xml.
     """
     return text.replace("&", "&amp")
+
+
 def create_rss_from_template(
-    videos: Iterable[VideoItem], template_path: Literal["rss20.jinja", "atom.jinja"]
+    videos: Iterable[VideoItem],
+    template_path: Literal["rss20.jinja", "atom.jinja"],
 ) -> bytes:
     """Function to create rss xml from template"""
     logger.debug("Creating rss xml from template")
@@ -135,4 +137,3 @@ def form_rss_feed_from_videos_list(db: Database, video_ids: Iterable[str]) -> by
     xml = create_rss_from_template(videos, "rss20.jinja")
     logger.debug("RSS feed created")
     return xml
-

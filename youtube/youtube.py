@@ -37,6 +37,7 @@ async def _get_channel_rss_feed(channel_id: str) -> bytes | None:
             rss_content = await response.read()
 
     except aiohttp.ClientError:
+        # TODO: aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host www.youtube.com:443 ssl:default [Connect call failed ('64.233.187.198', 443)]
         msg = f"Connection error while getting rss feed for channl {channel_id}"
         logger.exception(msg)
         raise
@@ -139,6 +140,7 @@ async def create_video_ids_list_for_rss_feed(
     db: Database,
     youtube,
 ) -> tuple[str, ...]:
+    logger.debug("Creating video ids list for rss feed")
     subscriptions = get_subscriptions_from_api(youtube=youtube)
     save_subscriptions_to_db(db, subscriptions)
     channel_ids = extract_channel_ids_from_subscriptions(subscriptions)

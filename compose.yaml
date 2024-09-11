@@ -1,13 +1,30 @@
 services:
-  db:
+  backend:
+    build:
+        context: .
+        dockerfile: Dockerfile
+    restart: always
+    env_file:
+        - ./config/.env
+    depends_on:
+      mongodb:
+        condition: service_healthy 
+        restart: true
+    ports:
+        - "46785:46785"
+
+  mongodb:
     image: mongo
     env_file:
         - ./config/.env
-    # restart: always
-    # environment:
-    #   - MONGO_INITDB_ROOT_USERNAME=root
-    #   - MONGO_INITDB_ROOT_PASSWORD=mypass
     volumes:
-        - ./db_data/:/data/db
+      - ./db_data/:/data/db:Z
     ports:
         - "27017:27017"
+    restart: always
+    healthcheck:
+      test: echo 'db.runCommand({serverStatus:1}).ok' | mongosh admin -u $$MONGO_INITDB_ROOT_USERNAME -p $$MONGO_INITDB_ROOT_PASSWORD --quiet | grep 1
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

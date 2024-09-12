@@ -137,18 +137,25 @@ def _is_channel_new_subscription(
 async def _get_new_video_ids_for_all_channels(
     channel_ids: Iterable[str],
     vid_collection: Collection,
-) -> tuple[str, ...]:
+) -> list[str]:
     """Function for getting new video ids for all channels"""
     logger.debug("Getting new video ids for all channels")
-    # video_ids = []
+
     tasks = [
         asyncio.create_task(_get_channel_new_video_ids(channel_id, vid_collection))
         for channel_id in channel_ids
     ]
-    ids = await asyncio.gather(*tasks)
-    # TODO: Create exceptions
-    return tuple(itertools.chain.from_iterable(ids))
-    # return tuple(video_ids)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    video_ids = []
+    exeptions = []
+    for res in results:
+        if isinstance(res, RequestError):
+            exeptions.append(res)
+        elif isinstance(res, tuple):
+            video_ids.extend(res)
+
+    return video_ids
 
 
 def get_channel_all_video_ids_from_api(
@@ -172,7 +179,7 @@ def extract_channel_ids_from_subscriptions(
 async def _create_video_ids_list_for_rss_feed(
     db: Database,
     youtube,
-) -> tuple[str, ...]:
+) -> list[str]:
     """Function return new video ids list for generating rss feed"""
     logger.debug("Creating video ids list for rss feed")
     subscriptions = get_subscriptions_from_api(youtube=youtube)

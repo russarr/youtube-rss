@@ -56,18 +56,26 @@ async def _request_channel_rss_feed(channel_id: str) -> bytes | None:
     """Function for request channel rss feed"""
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     logger.debug("Request rss feed for channel %s", channel_id)
-    try:
-        async with aiohttp.ClientSession() as client:
-            response = await client.get(rss_url)
-            rss_content = await response.read()
 
-    except aiohttp.ClientError:
-        # TODO: aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host www.youtube.com:443 ssl:default [Connect call failed ('64.233.187.198', 443)]
-        msg = f"Connection error while getting rss feed for channl {channel_id}"
+    retry_transport = httpx.AsyncHTTPTransport(retries=3)
+
+    try:
+        async with httpx.AsyncClient(transport=retry_transport) as client:
+            response = await client.get(rss_url)
+            response.raise_for_status()
+
+    except httpx.HTTPStatusError as e:
+        msg = f"HTTP status error for {rss_url} {e.response}"
         logger.exception(msg)
-        raise
+        raise RequestError(msg) from e
+
+    except httpx.RequestError as e:
+        msg = f"Connection error for {rss_url}. Error info: {sys.exc_info()[1]}"
+        logger.exception(msg)
+        raise RequestError(msg) from e
+
     logger.debug("Got rss feed for channel %s", channel_id)
-    return rss_content
+    return response.content
 
 
 def _get_video_ids_from_rss(rss_feed) -> tuple[str, ...]:

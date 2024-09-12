@@ -5,7 +5,7 @@
 <description>RSS is a fascinating technology. The uses for RSS are expanding daily.</description>
 <link>http://188.226.92.195:46785/rss</link>
 {% for video in videos %}
-    <item>
+<item>
     <title><![CDATA[{{ video.snippet.channelTitle }} --({{ parse_video_duration(video) }})-- {{ video.snippet.title }}]]></title>
     <description><![CDATA[{{ video.player.embedHtml }}
     <p>Published: {{ video.snippet.publishedAt | local_time_filter }}</p>

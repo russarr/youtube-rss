@@ -18,7 +18,7 @@ services:
     env_file:
         - ./config/.env
     volumes:
-      - ./db_data/:/data/db:Z
+      - ./db_data/:/data/db
     ports:
         - "27017:27017"
     restart: always
@@ -28,3 +28,13 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  test_db:
+    image: mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: mypass
+    # env_file:
+    #     - ./config/.env
+    ports:
+        - "27018:27017"

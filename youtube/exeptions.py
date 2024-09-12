@@ -7,3 +7,7 @@ googleapiclient.errors.HttpError: <HttpError 403 when requesting https://youtube
 
 class SettingsError(Exception):
     """Exeptions for wrong argumets in youtube resource function"""
+
+class RequestError(Exception):
+    """Common exception for request error(connect + status code)"""
+

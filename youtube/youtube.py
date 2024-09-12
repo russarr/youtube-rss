@@ -28,6 +28,30 @@ from youtube.youtube_api import (
 logger = conf_logger(__name__, "D")
 
 
+async def generate_rss_feed() -> bytes:
+    """Function to generate RSS feed"""
+    logger.debug("Generating rss feed")
+
+    client = MongoClient(
+        host="mongodb",
+        port=27017,
+        username="root",
+        password="mypass",
+    )
+    db = client.youtube
+    youtube = await create_youtube_resource(auth_method="code")
+
+    db.subscriptions.create_index("snippet.resourceId.channelId", unique=True)
+    db.videos.create_index("id", unique=True)
+    db.videos.create_index("snippet.channelId")
+    db.videos.create_index("snippet.publishedAt")
+
+    video_ids = await _create_video_ids_list_for_rss_feed(db, youtube)
+    logger.debug("There is %s new videos", len(video_ids))
+
+    rss_feed = form_rss_feed_from_videos_list(db, video_ids)
+    return rss_feed
+
 async def _request_channel_rss_feed(channel_id: str) -> bytes | None:
     """Function for request channel rss feed"""
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
@@ -151,29 +175,3 @@ async def _create_video_ids_list_for_rss_feed(
 
     save_items_to_db(db.videos, videos)
     return video_ids
-
-
-async def generate_rss_feed() -> bytes:
-    """Function to generate RSS feed"""
-    logger.debug("Generating rss feed")
-
-    client = MongoClient(
-        host="mongodb",
-        port=27017,
-        username="root",
-        password="mypass",
-    )
-    db = client.youtube
-    youtube = await create_youtube_resource(auth_method="code")
-
-    # TODO: вынести создание youtube resuorce и подключение к бд на самый верх \
-    # чтобы не подключаться каждый раз
-
-    db.subscriptions.create_index("snippet.resourceId.channelId", unique=True)
-    db.videos.create_index("id", unique=True)
-    db.videos.create_index("snippet.channelId")
-    db.videos.create_index("snippet.publishedAt")
-
-    video_ids = await create_video_ids_list_for_rss_feed(db, youtube)
-    rss_feed = form_rss_feed_from_videos_list(db, video_ids)
-    return rss_feed

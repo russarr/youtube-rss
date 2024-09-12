@@ -164,8 +164,8 @@ async def generate_rss_feed() -> bytes:
     db = client.youtube
     youtube = await create_youtube_resource(auth_method="code")
 
-    #TODO: вынести создание youtube resuorce и подключение к бд на самый верх \
-            # чтобы не подключаться каждый раз
+    # TODO: вынести создание youtube resuorce и подключение к бд на самый верх \
+    # чтобы не подключаться каждый раз
 
     db.subscriptions.create_index("snippet.resourceId.channelId", unique=True)
     db.videos.create_index("id", unique=True)

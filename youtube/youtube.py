@@ -3,6 +3,7 @@ import itertools
 from collections.abc import Iterable
 
 import aiohttp
+import httpx
 from lxml import etree
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -27,10 +28,10 @@ from youtube.youtube_api import (
 logger = conf_logger(__name__, "D")
 
 
-async def _get_channel_rss_feed(channel_id: str) -> bytes | None:
-    """Function for getting channel rss feed"""
+async def _request_channel_rss_feed(channel_id: str) -> bytes | None:
+    """Function for request channel rss feed"""
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-    logger.debug("Getting rss feed for channel %s", channel_id)
+    logger.debug("Request rss feed for channel %s", channel_id)
     try:
         async with aiohttp.ClientSession() as client:
             response = await client.get(rss_url)
@@ -75,7 +76,7 @@ async def _get_channel_new_video_ids(
         "Getting only new video ids(rss exclude db) for channel %s",
         channel_id,
     )
-    rss_feed = await _get_channel_rss_feed(channel_id)
+    rss_feed = await _request_channel_rss_feed(channel_id)
     rss_video_ids: tuple[str, ...] = _get_video_ids_from_rss(rss_feed)
     ids_in_db: tuple[str, ...] = read_last_video_ids_for_channel_from_db(
         vid_collection,
@@ -101,7 +102,7 @@ def _is_channel_new_subscription(
     return check
 
 
-async def get_new_video_ids_for_all_channels(
+async def _get_new_video_ids_for_all_channels(
     channel_ids: Iterable[str],
     vid_collection: Collection,
 ) -> tuple[str, ...]:
@@ -136,15 +137,16 @@ def extract_channel_ids_from_subscriptions(
     return tuple(s.snippet.resourceId.channelId for s in subscriptions)
 
 
-async def create_video_ids_list_for_rss_feed(
+async def _create_video_ids_list_for_rss_feed(
     db: Database,
     youtube,
 ) -> tuple[str, ...]:
+    """Function return new video ids list for generating rss feed"""
     logger.debug("Creating video ids list for rss feed")
     subscriptions = get_subscriptions_from_api(youtube=youtube)
     save_subscriptions_to_db(db, subscriptions)
     channel_ids = extract_channel_ids_from_subscriptions(subscriptions)
-    video_ids = await get_new_video_ids_for_all_channels(channel_ids, db.videos)
+    video_ids = await _get_new_video_ids_for_all_channels(channel_ids, db.videos)
     videos = get_videos_info_from_api(youtube=youtube, video_ids=video_ids)
 
     save_items_to_db(db.videos, videos)

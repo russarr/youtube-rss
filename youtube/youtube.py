@@ -1,5 +1,6 @@
 import asyncio
 import itertools
+import sys
 from collections.abc import Iterable
 
 import aiohttp
@@ -14,6 +15,7 @@ from youtube.db import (
     save_items_to_db,
     save_subscriptions_to_db,
 )
+from youtube.exeptions import RequestError
 from youtube.google_api_auth import create_youtube_resource
 from youtube.rss import form_rss_feed_from_videos_list
 from youtube.schemas import Subscription
@@ -51,6 +53,15 @@ async def generate_rss_feed() -> bytes:
 
     rss_feed = form_rss_feed_from_videos_list(db, video_ids)
     return rss_feed
+
+
+def _check_if_all_requests_failed(results, exeptions) -> None:
+    """Function log if all requests returned RequestError"""
+    if len(exeptions) == len(results):
+        logger.error(
+            "All requests for rss feeds failed, check your internet connection"
+        )
+
 
 async def _request_channel_rss_feed(channel_id: str) -> bytes | None:
     """Function for request channel rss feed"""
@@ -154,6 +165,8 @@ async def _get_new_video_ids_for_all_channels(
             exeptions.append(res)
         elif isinstance(res, tuple):
             video_ids.extend(res)
+
+    _check_if_all_requests_failed(results, exeptions)
 
     return video_ids
 

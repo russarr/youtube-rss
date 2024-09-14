@@ -1,40 +1,43 @@
 services:
   backend:
+    profiles: ["prod"]
     build:
         context: .
         dockerfile: Dockerfile
     restart: always
     env_file:
-        - ./config/.env
+        ./config/.prod.env
     depends_on:
       mongodb:
         condition: service_healthy 
         restart: true
     ports:
-        - "46785:46785"
+      - "46785:46785"
 
   mongodb:
     image: mongo
+    profiles: ["prod"]
     env_file:
-        - ./config/.env
+        - ./config/.prod.env
     volumes:
       - ./db_data/:/data/db
     ports:
         - "27017:27017"
     restart: always
     healthcheck:
-      test: echo 'db.runCommand({serverStatus:1}).ok' | mongosh admin -u $$MONGO_INITDB_ROOT_USERNAME -p $$MONGO_INITDB_ROOT_PASSWORD --quiet | grep 1
+      test: >
+        echo 'db.runCommand({serverStatus:1}).ok' | 
+        mongosh admin -u $$MONGO_INITDB_ROOT_USERNAME -p $$MONGO_INITDB_ROOT_PASSWORD 
+        --quiet | grep 1
       interval: 10s
       timeout: 10s
       retries: 3
       start_period: 20s
 
-  test_db:
+  dev_db:
+    profiles: ["dev"]
     image: mongo
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: mypass
-    # env_file:
-    #     - ./config/.env
+    env_file:
+        - ./config/.dev.env
     ports:
         - "27018:27017"

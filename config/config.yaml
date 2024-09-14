@@ -1,4 +1,0 @@
-project_name: "youtube_parser"
-debug_mode: true
-log_file: "./logs/log.log"
-

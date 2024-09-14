@@ -1,5 +1,6 @@
 from aiohttp import web
 
+from config.env import env
 from youtube.youtube import generate_rss_feed
 
 
@@ -12,7 +13,7 @@ async def rss(_) -> web.Response:
 def main() -> None:
     app = web.Application()
     app.add_routes([web.get("/rss", rss)])
-    web.run_app(app, port=46785)
+    web.run_app(app, port=env.BACKEND_PORT) #pyright: ignore reportArgumentType
 
 
 if __name__ == "__main__":

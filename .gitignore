@@ -5,3 +5,5 @@ pyrightconfig.json
 tmp/credentials.json
 db_data
 tmp
+config/.dev.env
+config/.prod.env

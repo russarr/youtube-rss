@@ -10,6 +10,7 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 
+from config.env import env
 from youtube.db import (
     read_last_video_ids_for_channel_from_db,
     save_items_to_db,
@@ -35,10 +36,10 @@ async def generate_rss_feed() -> bytes:
     logger.debug("Generating rss feed")
 
     client = MongoClient(
-        host="mongodb",
-        port=27017,
-        username="root",
-        password="mypass",
+        host=env.DB_HOST,
+        port=env.DB_PORT, #pyright: ignore reportArgumentType
+        username=env.MONGO_INITDB_ROOT_USERNAME,
+        password=env.MONGO_INITDB_ROOT_PASSWORD,
     )
     db = client.youtube
     youtube = await create_youtube_resource(auth_method="code")

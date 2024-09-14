@@ -10,7 +10,7 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 
-from config.env import env
+from config import env
 from youtube.db import (
     read_last_video_ids_for_channel_from_db,
     save_items_to_db,
@@ -30,14 +30,13 @@ from youtube.youtube_api import (
 
 logger = conf_logger(__name__, "D")
 
-
 async def generate_rss_feed() -> bytes:
     """Function to generate RSS feed"""
     logger.debug("Generating rss feed")
 
     client = MongoClient(
         host=env.DB_HOST,
-        port=env.DB_PORT, #pyright: ignore reportArgumentType
+        port=env.DB_PORT,
         username=env.MONGO_INITDB_ROOT_USERNAME,
         password=env.MONGO_INITDB_ROOT_PASSWORD,
     )

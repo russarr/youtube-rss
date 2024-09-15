@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 
+from pydantic import ValidationError
 from pymongo import UpdateOne
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -15,7 +16,11 @@ def get_subscriptions_from_db(collection: Collection) -> set[Subscription]:
     logger.debug("Getting subscriptions from db collection: %s", collection)
 
     subscriptions = collection.find({}, {"_id": 0})
-    return {Subscription.model_validate(sub) for sub in subscriptions}
+    try:
+        return {Subscription.model_validate(sub) for sub in subscriptions}
+    except ValidationError:
+        logger.exception("Failed to validate subscriptions loaded from db")
+        raise
 
 
 def save_items_to_db(
@@ -41,7 +46,15 @@ def read_last_video_id_from_db(
     )
     result = tuple(last_video)
     if result:
-        return SearchResultVideo.model_validate(result[0]).id.videoId
+        try:
+            return SearchResultVideo.model_validate(result[0]).id.videoId
+        except ValidationError:
+            logger.exception(
+                "Failed to validate last video for channel %s loaded from db",
+                channel_id,
+            )
+            raise
+
     return None
 
 
@@ -61,7 +74,11 @@ def read_videos_from_db_by_id_list(
     """Function return list of VideoItem from db by ids list"""
     logger.debug("Read videos from db by ids list: %s", video_ids)
     res = vid_collection.find({"id": {"$in": tuple(video_ids)}}, {"_id": 0})
-    return tuple(VideoItem.model_validate(r) for r in res)
+    try:
+        return tuple(VideoItem.model_validate(r) for r in res)
+    except ValidationError:
+        logger.exception("Failed to validate videos loaded from db %s", video_ids)
+        raise
 
 
 def read_last_video_ids_for_channel_from_db(

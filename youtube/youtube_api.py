@@ -3,6 +3,8 @@ from datetime import datetime
 from itertools import batched
 from typing import Literal, Sequence
 
+from pydantic import ValidationError
+
 from youtube.schemas import (
     SearchResult,
     SearchResultVideo,
@@ -68,7 +70,11 @@ def get_subscriptions_from_api(
     )
     while request is not None:
         response = request.execute()
-        subscriptions_result = SubscriptionResponse.model_validate(response)
+        try:
+            subscriptions_result = SubscriptionResponse.model_validate(response)
+        except ValidationError:
+            logger.exception("Failed to validate user subscriptions loaded from api")
+            raise
         subscriptions.update(subscriptions_result.items)
         request = resource().list_next(request, response)
 
@@ -93,6 +99,7 @@ def search_videos_from_api(  # noqa: PLR0913
     duration: VideoDuration = "any",
 ) -> set[SearchResultVideo]:
     """
+    Fucntion returns all videos from channel by channel id
     https://developers.google.com/youtube/v3/docs/search/list
     A call to this method has a quota cost of 100 units.
     param: published_before
@@ -125,7 +132,14 @@ def search_videos_from_api(  # noqa: PLR0913
     )
     while request is not None:
         response = request.execute()
-        videos_result = SearchResult.model_validate(response)
+        try:
+            videos_result = SearchResult.model_validate(response)
+        except ValidationError:
+            logger.exception(
+                "Failed to validate all videos for channel(%s) loaded from api",
+                channel_id,
+            )
+            raise
         videos.update(videos_result.items)
         request = resource().list_next(request, response)
     return set(videos)
@@ -158,7 +172,14 @@ def get_videos_info_from_api(
         )
         while request is not None:
             response = request.execute()
-            videos_result = VideosResponse.model_validate(response)
+            try:
+                videos_result = VideosResponse.model_validate(response)
+            except ValidationError:
+                logger.exception(
+                    "Failed to validate info for videos(%s) loaded from api",
+                    video_ids,
+                )
+                raise
             videos.update(videos_result.items)
             request = resource().list_next(request, response)
 

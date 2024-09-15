@@ -23,3 +23,7 @@ BACKEND_PORT: int = int(_get_env("BACKEND_PORT"))
 PROJECT_NAME: str = _get_env("PROJECT_NAME")
 LOG_FILE: str = _get_env("LOG_FILE")
 DEBUG_MODE: bool = _get_env("DEBUG_MODE").lower() in ("true", "1", "t")
+
+TELEGRAM_CHAT_ID = _get_env("TELEGRAM_CHAT_ID")
+TELEGRAM_BOT_TOKEN = _get_env("TELEGRAM_BOT_TOKEN")
+

@@ -104,6 +104,7 @@ def create_rss_from_template(
     template_path: Literal["rss20.jinja", "atom.jinja"],
 ) -> bytes:
     """Function to create rss xml from template"""
+    # TODO: create template with youtube namespaces
     logger.debug("Creating rss xml from template")
     env = Environment(
         loader=FileSystemLoader("youtube/templates"),

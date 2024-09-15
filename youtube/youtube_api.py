@@ -1,18 +1,7 @@
-# ruff: noqa: ERA001, S301
-# TODO : del ruff ignore
-## pyright: reportUnusedImport=false
-import json
 from collections.abc import Iterable
 from datetime import datetime
 from itertools import batched
-from pathlib import Path
-from pprint import pprint
 from typing import Literal, Sequence
-
-# from google.auth.external_account_authorized_user import Credentials as Credentials2
-from google.oauth2.credentials import Credentials
-from googleapiclient import discovery
-from googleapiclient.discovery import Resource
 
 from youtube.schemas import (
     SearchResult,
@@ -23,9 +12,6 @@ from youtube.schemas import (
     VideosResponse,
 )
 from youtube.utils.logger import conf_logger
-
-# from pprint import pprint
-
 
 logger = conf_logger(__name__, "D")
 

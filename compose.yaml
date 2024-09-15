@@ -6,7 +6,7 @@ services:
         dockerfile: Dockerfile
     restart: always
     env_file:
-        ./config/.prod.env
+        ./config/.env
     depends_on:
       mongodb:
         condition: service_healthy 
@@ -18,7 +18,7 @@ services:
     image: mongo
     profiles: ["prod"]
     env_file:
-        - ./config/.prod.env
+        - ./config/.env
     volumes:
       - ./db_data/:/data/db
     ports:

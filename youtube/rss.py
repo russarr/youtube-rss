@@ -2,11 +2,11 @@ from collections import deque
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from typing import Literal
-from zoneinfo import ZoneInfo
 
 import isodate
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pymongo.database import Database
+from zoneinfo import ZoneInfo
 
 from youtube.db import read_videos_from_db_by_id_list
 from youtube.exeptions import SettingsError

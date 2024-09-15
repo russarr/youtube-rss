@@ -236,7 +236,7 @@ ContentRating = Literal[
 
 
 class VideoContentDetailsInfo(PydantModel):
-    duration: str
+    duration: str = "PT0H0M0S"
     dimension: str
     definition: str
     caption: str

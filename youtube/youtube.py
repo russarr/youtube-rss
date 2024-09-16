@@ -1,9 +1,7 @@
 import asyncio
-import itertools
 import sys
 from collections.abc import Iterable
 
-import aiohttp
 import httpx
 from lxml import etree
 from pymongo import MongoClient
@@ -51,15 +49,14 @@ async def generate_rss_feed() -> bytes:
     video_ids = await _create_video_ids_list_for_rss_feed(db, youtube)
     logger.debug("There is %s new videos", len(video_ids))
 
-    rss_feed = form_rss_feed_from_videos_list(db, video_ids)
-    return rss_feed
+    return form_rss_feed_from_videos_list(db, video_ids)
 
 
 def _check_if_all_requests_failed(results, exeptions) -> None:
     """Function log if all requests returned RequestError"""
     if len(exeptions) == len(results):
         logger.error(
-            "All requests for rss feeds failed, check your internet connection"
+            "All requests for rss feeds failed, check your internet connection",
         )
 
 

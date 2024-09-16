@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Iterable
 from datetime import datetime
 from itertools import batched
@@ -36,7 +37,7 @@ video_part = Literal[
 VideoDuration = Literal["any", "long", "medium", "short"]
 
 
-def get_subscriptions_from_api(
+async def get_subscriptions_from_api(
     youtube,
     part: Literal[
         "contentDetails",
@@ -69,7 +70,7 @@ def get_subscriptions_from_api(
         order=order,
     )
     while request is not None:
-        response = request.execute()
+        response = await asyncio.to_thread(request.execute)
         try:
             subscriptions_result = SubscriptionResponse.model_validate(response)
         except ValidationError:
@@ -82,7 +83,7 @@ def get_subscriptions_from_api(
     return subscriptions
 
 
-def search_videos_from_api(  # noqa: PLR0913
+async def search_videos_from_api(  # noqa: PLR0913
     youtube,
     channel_id: str,
     results_per_page: int = 50,
@@ -131,7 +132,7 @@ def search_videos_from_api(  # noqa: PLR0913
         # **additional_params,
     )
     while request is not None:
-        response = request.execute()
+        response = await asyncio.to_thread(request.execute)
         try:
             videos_result = SearchResult.model_validate(response)
         except ValidationError:
@@ -145,7 +146,7 @@ def search_videos_from_api(  # noqa: PLR0913
     return set(videos)
 
 
-def get_videos_info_from_api(
+async def get_videos_info_from_api(
     youtube,
     video_ids: Sequence[str],
     part: Iterable[video_part] = ("contentDetails", "snippet", "player"),
@@ -171,7 +172,7 @@ def get_videos_info_from_api(
             id=",".join(batch_ids),
         )
         while request is not None:
-            response = request.execute()
+            response = await asyncio.to_thread(request.execute)
             try:
                 videos_result = VideosResponse.model_validate(response)
             except ValidationError:

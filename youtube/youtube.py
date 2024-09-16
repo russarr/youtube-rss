@@ -50,7 +50,7 @@ async def generate_rss_feed() -> bytes:
     await db.videos.create_index("snippet.publishedAt")
 
     video_ids = await _create_video_ids_list_for_rss_feed(db, youtube)
-    logger.debug("There is %s new videos", len(video_ids))
+    logger.debug("There is %s new videos: %s", len(video_ids), video_ids)
 
     return await form_rss_feed_from_videos_list(db, video_ids)
 
@@ -171,13 +171,17 @@ async def _get_new_video_ids_for_all_channels(
     return video_ids
 
 
-def get_channel_all_video_ids_from_api(
+async def get_channel_all_video_ids_from_api(
     youtube,
     channel_id: str,
     duration: VideoDuration = "any",
 ) -> tuple[str, ...]:
     """Function for getting all video ids from channel"""
-    videos = search_videos_from_api(youtube, channel_id=channel_id, duration=duration)
+    videos = await search_videos_from_api(
+        youtube,
+        channel_id=channel_id,
+        duration=duration,
+    )
     return tuple(i.id.videoId for i in videos)
 
 
@@ -195,11 +199,11 @@ async def _create_video_ids_list_for_rss_feed(
 ) -> list[str]:
     """Function return new video ids list for generating rss feed"""
     logger.debug("Creating video ids list for rss feed")
-    subscriptions = get_subscriptions_from_api(youtube=youtube)
+    subscriptions = await get_subscriptions_from_api(youtube=youtube)
     _ = await save_subscriptions_to_db(db, subscriptions)
     channel_ids = extract_channel_ids_from_subscriptions(subscriptions)
     video_ids = await _get_new_video_ids_for_all_channels(channel_ids, db.videos)
-    videos = get_videos_info_from_api(youtube=youtube, video_ids=video_ids)
+    videos = await get_videos_info_from_api(youtube=youtube, video_ids=video_ids)
 
     _ = await save_items_to_db(db.videos, videos)
     return video_ids

@@ -4,9 +4,11 @@ from collections.abc import Iterable
 
 import httpx
 from lxml import etree
-from pymongo import MongoClient
-from pymongo.collection import Collection
-from pymongo.database import Database
+from motor.motor_asyncio import (
+    AsyncIOMotorClient,
+    AsyncIOMotorCollection,
+    AsyncIOMotorDatabase,
+)
 
 from config import env
 from youtube.db import (
@@ -28,11 +30,12 @@ from youtube.youtube_api import (
 
 logger = conf_logger(__name__, "D")
 
+
 async def generate_rss_feed() -> bytes:
     """Function to generate RSS feed"""
     logger.debug("Generating rss feed")
 
-    client = MongoClient(
+    client = AsyncIOMotorClient(
         host=env.DB_HOST,
         port=env.DB_PORT,
         username=env.MONGO_INITDB_ROOT_USERNAME,
@@ -41,15 +44,15 @@ async def generate_rss_feed() -> bytes:
     db = client.youtube
     youtube = await create_youtube_resource(auth_method="code")
 
-    db.subscriptions.create_index("snippet.resourceId.channelId", unique=True)
-    db.videos.create_index("id", unique=True)
-    db.videos.create_index("snippet.channelId")
-    db.videos.create_index("snippet.publishedAt")
+    await db.subscriptions.create_index("snippet.resourceId.channelId", unique=True)
+    await db.videos.create_index("id", unique=True)
+    await db.videos.create_index("snippet.channelId")
+    await db.videos.create_index("snippet.publishedAt")
 
     video_ids = await _create_video_ids_list_for_rss_feed(db, youtube)
     logger.debug("There is %s new videos", len(video_ids))
 
-    return form_rss_feed_from_videos_list(db, video_ids)
+    return await form_rss_feed_from_videos_list(db, video_ids)
 
 
 def _check_if_all_requests_failed(results, exeptions) -> None:
@@ -118,7 +121,7 @@ async def _get_channel_new_video_ids(
     )
     rss_feed = await _request_channel_rss_feed(channel_id)
     rss_video_ids: tuple[str, ...] = _get_video_ids_from_rss(rss_feed)
-    ids_in_db: tuple[str, ...] = read_last_video_ids_for_channel_from_db(
+    ids_in_db: tuple[str, ...] = await read_last_video_ids_for_channel_from_db(
         vid_collection,
         channel_id,
     )
@@ -144,7 +147,7 @@ def _is_channel_new_subscription(
 
 async def _get_new_video_ids_for_all_channels(
     channel_ids: Iterable[str],
-    vid_collection: Collection,
+    vid_collection: AsyncIOMotorCollection,
 ) -> list[str]:
     """Function for getting new video ids for all channels"""
     logger.debug("Getting new video ids for all channels")
@@ -187,16 +190,16 @@ def extract_channel_ids_from_subscriptions(
 
 
 async def _create_video_ids_list_for_rss_feed(
-    db: Database,
+    db: AsyncIOMotorDatabase,
     youtube,
 ) -> list[str]:
     """Function return new video ids list for generating rss feed"""
     logger.debug("Creating video ids list for rss feed")
     subscriptions = get_subscriptions_from_api(youtube=youtube)
-    save_subscriptions_to_db(db, subscriptions)
+    _ = await save_subscriptions_to_db(db, subscriptions)
     channel_ids = extract_channel_ids_from_subscriptions(subscriptions)
     video_ids = await _get_new_video_ids_for_all_channels(channel_ids, db.videos)
     videos = get_videos_info_from_api(youtube=youtube, video_ids=video_ids)
 
-    save_items_to_db(db.videos, videos)
+    _ = await save_items_to_db(db.videos, videos)
     return video_ids

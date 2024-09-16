@@ -1,19 +1,22 @@
-from collections import deque
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 import isodate
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from pymongo.database import Database
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from zoneinfo import ZoneInfo
 
-from youtube.db import read_videos_from_db_by_id_list
+from youtube.db import (
+    load_rss_deque_from_db,
+    read_videos_from_db_by_id_list,
+    save_rss_deque_to_db,
+)
 from youtube.exeptions import SettingsError
 from youtube.schemas import VideoItem
 from youtube.utils.logger import conf_logger
 
-logger = conf_logger(__name__, "D")
+logger = conf_logger(__name__, "E")
 
 
 xml_namespaces = {
@@ -21,34 +24,6 @@ xml_namespaces = {
     "yt": "http://www.youtube.com/xml/schemas/2015",
     "media": "http://search.yahoo.com/mrss/",
 }
-
-
-def _save_rss_deque_to_db(db: Database, rss_deque: deque) -> None:
-    """Function to save deque to db"""
-    logger.debug("Saving rss deque: %s to db", rss_deque)
-    db.rss.update_one(
-        {"_id": "rss_field"},
-        {"$set": {"deque": tuple(rss_deque)}},
-        upsert=True,
-    )
-
-
-def _load_rss_deque_from_db(db: Database, rss_len: int = 40) -> deque[str]:
-    """
-    Method to load deque from db. If deque not exist in db, it will return empty deque.
-    """
-    # TODO: add loading rss len from settings file
-    logger.debug("Loading rss deque from db")
-    cursor = db.rss.find_one({"_id": "rss_field"})
-    rss_deque = deque(maxlen=rss_len)
-    if cursor:
-        video_ids = cursor["deque"]
-        rss_deque.extend(video_ids)
-        logger.debug("Loaded rss deque from db: %s from db", rss_deque)
-    else:
-        logger.debug("deque in db is not exist. Using empty deque")
-
-    return rss_deque
 
 
 def parse_video_duration(video: VideoItem) -> str:
@@ -126,14 +101,16 @@ def create_rss_from_template(
     return result.encode()
 
 
-def form_rss_feed_from_videos_list(db: Database, video_ids: Iterable[str]) -> bytes:
+async def form_rss_feed_from_videos_list(
+    db: AsyncIOMotorDatabase, video_ids: Iterable[str],
+) -> bytes:
     """Function create rss 2.0 feed"""
     logger.debug("Forming rss 2.0 feed from video ids: %s", video_ids)
-    rss_deque = _load_rss_deque_from_db(db)
+    rss_deque = await load_rss_deque_from_db(db)
     rss_deque.extend(video_ids)
-    _save_rss_deque_to_db(db, rss_deque)
+    _ = await save_rss_deque_to_db(db, rss_deque)
 
-    videos = read_videos_from_db_by_id_list(db.videos, rss_deque)
+    videos = await read_videos_from_db_by_id_list(db.videos, rss_deque)
 
     xml = create_rss_from_template(videos, "rss20.jinja")
     logger.debug("RSS feed created")

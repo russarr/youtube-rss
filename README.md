@@ -10,8 +10,7 @@
 Затем парсится с помощью lxml.  
 Для каждого видео получается информация и сохраняется в БД(MongoDB).  
 Верификация полученных данных через pydanctic.  
-Из новых видео формируется rss-лента(на выбор форматы: Atom, RSS2.0) с помощью 
-jinja2.  
+Из новых видео формируется rss-лента(на выбор форматы: Atom, RSS2.0) с помощью jinja2.  
 Лента публикуется через aiohttp.  
 
 Особенности:
@@ -22,5 +21,9 @@ jinja2.
 Приложение авторизуется с Google OAuth 2.0.
 Для этого необходимо получить Google API credentials(https://developers.google.com/workspace/guides/create-credentials#oauth-client-id). И сохранить их как config/client_secret.json  
 
-Заполнить переменные окружения в `config/.env_example` и сохранить как `config/.env`  
+Заполнить переменные окружения в `config/.env_example` и сохранить как `config/.env`:  
+Если нужно чтобы сообщения логгера уровня error приходили в Telegram, заполните переменные:
+TELEGRAM_CHAT_ID = ""
+TELEGRAM_BOT_TOKEN = ""
+
 

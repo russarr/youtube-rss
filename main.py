@@ -7,7 +7,7 @@ from youtube.youtube import generate_rss_feed
 app = FastAPI(title="Youtube RSS")
 
 
-@app.get("/")
+@app.get("/rss")
 async def root() -> Response:
     body = await generate_rss_feed()
     return Response(content=body, media_type="application/xml")

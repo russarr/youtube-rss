@@ -1,20 +1,24 @@
-from aiohttp import web
+import uvicorn
+from fastapi import FastAPI, Response
 
 from config import env
 from youtube.youtube import generate_rss_feed
 
-
-async def rss(_) -> web.Response:
-    rss_feed = await generate_rss_feed()
-
-    return web.Response(body=rss_feed, content_type="application/xml")
+app = FastAPI(title="Youtube RSS")
 
 
-def main() -> None:
-    app = web.Application()
-    app.add_routes([web.get("/rss", rss)])
-    web.run_app(app, port=env.BACKEND_PORT)
+@app.get("/")
+async def root() -> Response:
+    body = await generate_rss_feed()
+    return Response(content=body, media_type="application/xml")
 
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run(
+        "main:app",
+        reload=True,
+        port=env.BACKEND_PORT,
+        reload_excludes=[
+            "db_data/*",
+        ],
+    )

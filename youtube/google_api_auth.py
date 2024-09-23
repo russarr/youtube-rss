@@ -137,14 +137,6 @@ class DBCredentialsStorage:
         return "DBCredentialsStorage(credentials={self.credentials})"
 
 
-class AuthCodeBearer:
-    """Class to transfer auth url and code between coroutines"""
-
-    def __init__(self) -> None:
-        self.code: str | None = None
-        self.url: str | None = None
-
-
 class AuthPipe(Protocol):
     def send(self, auth_url: str) -> None: ...
 

@@ -1,19 +1,12 @@
-import asyncio
 from pathlib import Path
-from typing import Annotated
 
 import uvicorn
 from fastapi import Depends, FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from google_auth_oauthlib.flow import Flow
 
 from config import env
-from youtube.google_api_auth import (
-    AuthCodeBearer,
-    create_credentials_storage,
-    create_flow,
-)
+from youtube.google_api_auth import create_credentials_storage, create_flow
 from youtube.youtube import generate_rss_feed
 
 app = FastAPI(title="Youtube RSS")

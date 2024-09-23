@@ -1,6 +1,7 @@
 import asyncio
 import sys
 from collections.abc import Iterable
+from pathlib import Path
 
 import httpx
 from lxml import etree
@@ -42,17 +43,20 @@ async def generate_rss_feed() -> bytes:
         password=env.MONGO_INITDB_ROOT_PASSWORD,
     )
     db = client.youtube
-    youtube = await create_youtube_resource(auth_method="code")
 
     await db.subscriptions.create_index("snippet.resourceId.channelId", unique=True)
     await db.videos.create_index("id", unique=True)
     await db.videos.create_index("snippet.channelId")
     await db.videos.create_index("snippet.publishedAt")
 
-    video_ids = await _create_video_ids_list_for_rss_feed(db, youtube)
-    logger.debug("There is %s new videos: %s", len(video_ids), video_ids)
+    youtube = await create_youtube_resource(Path("tmp/credentials.json"))
+    if youtube:
+        new_video_ids = await _create_video_ids_list_for_rss_feed(db, youtube)
+        logger.debug("There is %s new videos: %s", len(new_video_ids), new_video_ids)
+    else:
+        new_video_ids = []
 
-    return await form_rss_feed_from_videos_list(db, video_ids)
+    return await form_rss_feed_from_videos_list(db, new_video_ids)
 
 
 def _check_if_all_requests_failed(results, exeptions) -> None:
@@ -133,16 +137,6 @@ async def _get_channel_new_video_ids(
         new_video_ids,
     )
     return new_video_ids
-
-
-def _is_channel_new_subscription(
-    ids_in_db: tuple[str, ...],
-    channel_id: str,
-) -> bool:
-    """Function check if channel is new subscription"""
-    check = len(ids_in_db) == 0
-    logger.debug("Channel: %s is new subscription: %s", channel_id, check)
-    return check
 
 
 async def _get_new_video_ids_for_all_channels(

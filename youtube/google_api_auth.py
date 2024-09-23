@@ -3,19 +3,24 @@ import json
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Protocol, override
+from typing import Final, Literal, Protocol, override
 
 from google.auth.exceptions import RefreshError
 from google.auth.external_account_authorized_user import Credentials as Credentials2
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow, InstalledAppFlow
 from googleapiclient import discovery
+from googleapiclient.discovery import Resource
+from motor.motor_asyncio import AsyncIOMotorCollection
 
+from youtube.exeptions import SettingsError
 from youtube.utils.logger import conf_logger
 
-logger = conf_logger(__name__, "E")
+logger = conf_logger(__name__, "D")
 
+
+CLIENT_SECRET_PATH: Final = "config/client_secret.json"
 
 ScopeAliases = Literal[
     "manage_account",
@@ -26,13 +31,28 @@ ScopeAliases = Literal[
     "manage_assets",
     "audit",
 ]
+# TODO: check if aliases needed
+
+AccessScopes = Iterable[
+    Literal[
+        "https://www.googleapis.com/auth/youtube",
+        "https://www.googleapis.com/auth/youtube.channel-memberships.creator",
+        "https://www.googleapis.com/auth/youtube.force-ssl",
+        "https://www.googleapis.com/auth/youtube.readonly",
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtubepartner",
+        "https://www.googleapis.com/auth/youtubepartner-channel-audit",
+    ]
+]
 
 
 async def ainput(prompt: str) -> str:
     """Function to run async console input"""
     return await asyncio.to_thread(input, f"{prompt} ")
 
+
 class CredentialsStorage(Protocol):
+    # TODO: сделать асинхронным
     def save(self, credentials: Credentials | Credentials2) -> None: ...
 
     def load(self) -> Credentials | None: ...
@@ -46,8 +66,10 @@ class FileCredentialsStorage:
     Class to save and load credentials from file
     """
 
-    def __init__(self, storage_file: str = "./tmp/credentials.json") -> None:
-        self.storage_file = Path(storage_file)
+    # TODO: сделать асинхронным
+
+    def __init__(self, storage_file: Path) -> None:
+        self.storage_file = storage_file
         if not self.storage_file.parent.exists():
             logger.debug(
                 "There is no directory for storage file: %s. Creating.",
@@ -100,8 +122,8 @@ class FileCredentialsStorage:
 class DBCredentialsStorage:
     """Class to save and load credentials from database"""
 
-    def __init__(self, credentials: Credentials | Credentials2) -> None:
-        self.credentials = credentials
+    def __init__(self, storage_access_point: AsyncIOMotorCollection) -> None:
+        self._col = storage_access_point
 
     def save(self, credentials: Credentials | Credentials2) -> None:
         raise NotImplementedError
@@ -111,7 +133,16 @@ class DBCredentialsStorage:
 
     @override
     def __repr__(self) -> str:
-        return f"DBCredentialsStorage(credentials={self.credentials})"
+        # TODO: не забыть исправить repr
+        return "DBCredentialsStorage(credentials={self.credentials})"
+
+
+class AuthCodeBearer:
+    """Class to transfer auth url and code between coroutines"""
+
+    def __init__(self) -> None:
+        self.code: str | None = None
+        self.url: str | None = None
 
 
 class AuthPipe(Protocol):
@@ -140,49 +171,137 @@ class TelegramAuthPipe:
         raise NotImplementedError
 
 
-AccessScopes = Iterable[
-    Literal[
-        "https://www.googleapis.com/auth/youtube",
-        "https://www.googleapis.com/auth/youtube.channel-memberships.creator",
-        "https://www.googleapis.com/auth/youtube.force-ssl",
-        "https://www.googleapis.com/auth/youtube.readonly",
-        "https://www.googleapis.com/auth/youtube.upload",
-        "https://www.googleapis.com/auth/youtubepartner",
-        "https://www.googleapis.com/auth/youtubepartner-channel-audit",
-    ]
-]
+class WebAuthPipe:
+    """Class to send auth url and receive auth code through web browser"""
+
+    def __init__(self, auth_code_bearer: AuthCodeBearer, event: asyncio.Event) -> None:
+        self._auth_code_bearer = auth_code_bearer
+        self._event = event
+
+    def send(self, auth_url: str) -> None:
+        self._auth_code_bearer.url = auth_url
+
+    async def receive(self) -> str:
+        await self._event.wait()
+
+        if self._auth_code_bearer.code:
+            return self._auth_code_bearer.code
+
+        msg = "Auth code is not recieved"
+        logger.error(msg)
+        raise AttributeError(msg)
 
 
-async def create_youtube_resource(  # noqa: ANN201
-    credentials_storage: CredentialsStorage | None = None,
-    auth_pipe: AuthPipe | None = None,
-    auth_method: Literal["browser", "code"] = "browser",
-    access_scopes: AccessScopes = ("https://www.googleapis.com/auth/youtube.readonly",),
-    client_secret_file: str = "./config/client_secret.json",  # noqa: S107
-):
+def _is_credentials_fresh(credentials: Credentials) -> bool:
+    """Function checking whether credentials are expired
+
+    Args:
+        credentials (Credentials): credentials to check
+
+    Returns:
+        bool: True if credentials are not expired
+    """
+    logger.debug("Credentils state: %s", credentials.token_state.name)
+    if is_fresh := (credentials.token_state.name == "FRESH"):
+        logger.debug("Credentials are expired, is fresh: %s", is_fresh)
+    else:
+        logger.debug("Credentials are not expired, is fresh: %s", is_fresh)
+    return is_fresh
+
+
+def create_credentials_storage(
+    storage_access_point: Path | AsyncIOMotorCollection,
+) -> CredentialsStorage:
+    """
+    Function to create credentials storage
+
+    Args:
+        storage_access_point (Path | AsyncIOMotorCollection): path to credentials
+            file or collection in database
+    Returns:
+        CredentialsStorage
+    """
+    logger.debug(
+        "Creating credentials storage, with access point %s",
+        storage_access_point,
+    )
+    match storage_access_point:
+        case Path():
+            storage = FileCredentialsStorage(storage_access_point)
+        case AsyncIOMotorCollection():
+            storage = DBCredentialsStorage(storage_access_point)
+
+    logger.debug("Credentials storage: %s created", storage)
+    return storage
+
+
+def create_auth_pipe(
+    pipe_type: Literal["console", "telegram", "web"],
+    auth_code_bearer: AuthCodeBearer | None = None,
+    event: asyncio.Event | None = None,
+) -> AuthPipe:
+    """
+    Function to create auth pipe for sending auth url and receiving auth code
+
+    Args:
+        pipe_type(str): type of auth pipe:
+            console: url prints in console, auth code reciving through input
+            #TODO: add telegram param desription to docstring
+            telegram: ...
+            web: url and code transfred through auth_code_bearer, using asyncio event
+        auth_code_bearer(AuthCodeBearer): class to transfer auth url and code between
+            coroutines
+        event(asyncio.Event): asyncio event
+
+    Returns:
+        Instanse of AuthPipe
+
+    Raises:
+        SettingsError: if auth pipe is web or telegram, auth_code_bearer and event are
+        mandatory parameters
+    """
+    logger.debug(
+        "Creating auth pipe: %s with params: auth_code_bearer:%s, event:%s",
+        pipe_type,
+        auth_code_bearer,
+        event,
+    )
+    match pipe_type:
+        case "console":
+            return ConsoleAuthPipe()
+        case "telegram":
+            raise NotImplementedError
+        case "web":
+            if auth_code_bearer and event:
+                return WebAuthPipe(auth_code_bearer, event)
+            msg = "web auth pipe requires auth_code_bearer and event"
+            logger.error(msg)
+            raise SettingsError(msg)
+
+
+async def create_youtube_resource(
+    storage_access_point: Path | AsyncIOMotorCollection,
+) -> Resource | None:
     """
     Funtion to get main youtube api access point
-    credentials_storage: where to save credentials between sessions
-    auth_pipe: metod for send auth url and receive auth code
-    auth_method: how to auth using only browser or manual
-    access_scopes: access rights to api
-    client_secret_file: path to google api client secret file
+
+    Args:
+        credentials (Credentials): credentials
+    Returns:
+        Resource: youtube api access point
     """
-    if not credentials_storage:
-        logger.debug("credentials storage is not set. Creating FileCredentialsStorage")
-        credentials_storage = FileCredentialsStorage()
-    if not auth_pipe:
-        logger.debug("auth pipe is not set. Creating ConsoleAuthPipe")
-        auth_pipe = ConsoleAuthPipe()
     logger.debug("Creating youtube api resource")
-    credentials = await _get_credentials(
-        credentials_storage,
-        client_secret_file,
-        auth_method,
-        access_scopes,
-        auth_pipe,
-    )
-    return discovery.build("youtube", "v3", credentials=credentials)
+    credentials_storage = create_credentials_storage(storage_access_point)
+    credentials = credentials_storage.load()
+    if credentials and _is_credentials_fresh(credentials):
+        credentials = await _refresh_credentials(credentials)
+        credentials_storage.save(credentials)
+
+        logger.debug("Youtube api resource created")
+        return discovery.build("youtube", "v3", credentials=credentials)
+
+    logger.debug("youtube api resource not created")
+    return None
 
 
 def _load_client_secret_file(client_secret_file: str) -> Path:
@@ -203,71 +322,77 @@ def _load_client_secret_file(client_secret_file: str) -> Path:
     return client_secret
 
 
-def _refresh_credentials(credentials: Credentials) -> Credentials:
+async def _refresh_credentials(credentials: Credentials) -> Credentials:
     """Function to refresh youtube api token"""
     logger.debug("refreshing credentials")
-    credentials.refresh(Request())
+    try:
+        await asyncio.to_thread(credentials.refresh, Request())
+    except RefreshError:
+        logger.exception("Failed to refresh credentials")
+        raise
     return credentials
 
 
-def _get_saved_credentials(
-    credentials_storage: CredentialsStorage,
-) -> Credentials | Credentials2 | None:
+def load_saved_credentials(
+    storage_access_point: Path | AsyncIOMotorCollection,
+) -> Credentials | None:
     """
-    Function to get youtbe credentials from storage. If saved credentials is missing
-    or corrupted return None
+    Function to get youtbe credentials from storage.
+
+    Args:
+        storage_access_point (Path | AsyncIOMotorCollection): path to credentials
+            file or collection in database
+    Returns:
+        Credentials
     """
-    logger.debug("Getting credentials from storage: %s", credentials_storage)
+    logger.debug(
+        "Loading credentials from storage with access point: %s",
+        storage_access_point,
+    )
+    credentials_storage = create_credentials_storage(storage_access_point)
     credentials = credentials_storage.load()
 
     if credentials:
-        logger.debug("Credentials loaded")
-        try:
-            credentials = _refresh_credentials(credentials)
-        except RefreshError:
-            logger.debug("Credentials from storage %s is invalid")
-            return None
-
+        logger.debug("Credentials from storage: %s loaded", credentials_storage)
     else:
         logger.debug(
-            "Credentials from storage %s not found",
+            "Credentials from storage: %s not found",
             credentials_storage,
         )
-
-    if credentials:
-        credentials_storage.save(credentials)
     return credentials
 
 
-async def _get_credentials(
+async def get_new_credentials(
     credentials_storage: CredentialsStorage,
-    client_secret_file: str,
-    auth_method: Literal["browser", "code"],
+    client_secret_file_path: str,
+    app_type: Literal["local", "web"],
     access_scopes: AccessScopes,
     auth_pipe: AuthPipe,
-) -> Credentials | Credentials2 | None:
-    """Function to get credentials from new auth"""
-    logger.debug("Getting credentials")
-    credentials = _get_saved_credentials(credentials_storage)
-    if not credentials:
-        logger.debug("Credentials not found, running auth method: %s", auth_method)
+) -> Credentials | Credentials2:
+    logger.debug("Credentials not found, running auth method: %s", app_type)
+    client_secret = _load_client_secret_file(client_secret_file_path)
 
-        client_secret = _load_client_secret_file(client_secret_file)
-        if auth_method == "browser":
-            credentials = _auth_via_browser(client_secret, access_scopes)
-        else:
-            credentials = await _auth_via_code(client_secret, access_scopes, auth_pipe)
-
+    credentials_storage = create_credentials_storage(Path("tmp/credentials.json"))
+    match app_type:
+        case "local":
+            credentials = _auth_as_local_app(client_secret, access_scopes)
+        case "web":
+            credentials = await _auth_web_with_code(
+                client_secret,
+                access_scopes,
+                auth_pipe,
+            )
     credentials_storage.save(credentials)
     return credentials
 
 
-def _auth_via_browser(
+def _auth_as_local_app(
     client_secret: Path,
     access_scopes: AccessScopes,
 ) -> Credentials | Credentials2:
     """
-    Function to authenticate with google API using only browser
+    Function to authenticate with google API using local browser
+    Suitable only when starting on a local PC
     Access scopes: https://developers.google.com/identity/protocols/oauth2/scopes
     """
     logger.debug(
@@ -280,6 +405,8 @@ def _auth_via_browser(
         scopes=access_scopes,
     )
 
+    # TODO: check bind_addr: Unknown | None = None, how to use
+
     return flow.run_local_server(
         host="localhost",
         port=8080,
@@ -289,7 +416,7 @@ def _auth_via_browser(
     )
 
 
-async def _auth_via_code(
+async def _auth_web_with_code(
     client_secret: Path,
     access_scopes: AccessScopes,
     auth_pipe: AuthPipe,
@@ -299,11 +426,11 @@ async def _auth_via_code(
     Access scopes: https://developers.google.com/identity/protocols/oauth2/scopes
     """
     logger.debug(
-        "Auth using codo with client secret file: %s, for access scopes: %s",
+        "Auth using code with client secret file: %s, for access scopes: %s",
         client_secret,
         access_scopes,
     )
-    flow = InstalledAppFlow.from_client_secrets_file(
+    flow = Flow.from_client_secrets_file(
         client_secret,
         scopes=access_scopes,
         redirect_uri="urn:ietf:wg:oauth:2.0:oob",
@@ -312,7 +439,37 @@ async def _auth_via_code(
     url, _ = auth_url
 
     auth_pipe.send(url)
+    logger.debug("url is sended to bearer")
     code = await auth_pipe.receive()
 
     flow.fetch_token(code=code)
     return flow.credentials
+
+
+def create_flow(
+    access_scopes: AccessScopes,
+    auth_method: Literal["code", "redirect"],
+) -> Flow:
+    """
+    Function to create google auth flow
+
+    Args:
+        access_scopes (AccessScopes): list of access scopes
+        ath_method (Literal["code", "redirect"]): auth method
+    Returns:
+        Flow
+    """
+    logger.debug("Creating flow for access scopes: %s", access_scopes)
+    if auth_method == "code":
+        redirect_uri = "urn:ietf:wg:oauth:2.0:oob"
+    else:
+        # TODO: implement redirect case
+        raise NotImplementedError
+
+    # TODO: add client secret path to env
+
+    return Flow.from_client_secrets_file(
+        _load_client_secret_file(CLIENT_SECRET_PATH),
+        scopes=access_scopes,
+        redirect_uri=redirect_uri,
+    )

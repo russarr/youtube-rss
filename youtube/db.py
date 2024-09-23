@@ -74,7 +74,7 @@ async def read_channel_all_video_ids_from_db(
     return {vid["id"] async for vid in videos}
 
 
-async def read_videos_from_db_by_id_list(
+async def read_videos_info_from_db_by_id_list(
     vid_collection: AsyncIOMotorCollection,
     video_ids: Iterable[str],
 ) -> list[VideoItem]:

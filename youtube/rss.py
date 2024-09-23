@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from youtube.db import (
     load_rss_deque_from_db,
-    read_videos_from_db_by_id_list,
+    read_videos_info_from_db_by_id_list,
     save_rss_deque_to_db,
 )
 from youtube.exeptions import SettingsError
@@ -91,7 +91,7 @@ def create_rss_from_template(
 
     template = env.get_template(template_path)
 
-    # TODO: вынести загрузку шаблона на самый верх в точку доступа, чтобы не читать с \
+    #TODO: вынести загрузку шаблона на самый верх в точку доступа, чтобы не читать с \
     # диска каждый раз при создании ленты
 
     result = template.render(
@@ -110,7 +110,7 @@ async def form_rss_feed_from_videos_list(
     rss_deque.extend(video_ids)
     _ = await save_rss_deque_to_db(db, rss_deque)
 
-    videos = await read_videos_from_db_by_id_list(db.videos, rss_deque)
+    videos = await read_videos_info_from_db_by_id_list(db.videos, rss_deque)
 
     xml = create_rss_from_template(videos, "rss20.jinja")
     logger.debug("RSS feed created")

@@ -10,7 +10,7 @@ load_dotenv(_conf_path)
 def _get_env(key: str) -> str:
     if not (value := os.getenv(key)):
         msg = f"Environment variable {key} not found"
-        # TODO: add logger
+        #TODO: add logger
         raise AttributeError(msg)
     return value
 

@@ -34,5 +34,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 #Копируем файлы проекта
 COPY . .
 
-CMD ["python", "./main.py"]  
+# CMD ["python", "./main.py"]  
+
+CMD ["fastapi", "run", "main.py", "--port", $BACKEND_PORT]
 
